@@ -1,0 +1,15 @@
+{
+  "id": "ds_5756e41d",
+  "name": "aws-support-qa",
+  "type": "qa",
+  "description": "Factual Q&A for AWS support chatbot",
+  "tags": [
+    "aws",
+    "support",
+    "factual"
+  ],
+  "labels": null,
+  "created_at": "2026-03-12",
+  "updated_at": "2026-03-12",
+  "author": "satchpx"
+}

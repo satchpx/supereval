@@ -1,0 +1,73 @@
+name: LLM Eval
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install supereval
+        run: pip install -e .
+
+      - name: Install promptfoo
+        run: npm install -g promptfoo
+
+      # On PRs: run eval and compare against committed baseline.
+      # Fails the build if any regression is detected.
+      - name: Run eval (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          supereval run ${{ env.DATASET }} \
+            --model ${{ env.MODEL }} \
+            --compare-baseline \
+            --output eval-results.json
+        env:
+          DATASET: aws-support-qa
+          MODEL: anthropic:claude-opus-4-6
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # On push to main: run eval and update the baseline.
+      # The updated baseline.json is committed back so future PRs compare against it.
+      - name: Run eval (main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          supereval run ${{ env.DATASET }} \
+            --model ${{ env.MODEL }} \
+            --update-baseline \
+            --output eval-results.json
+        env:
+          DATASET: aws-support-qa
+          MODEL: anthropic:claude-opus-4-6
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Commit updated baseline
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add datasets/*/baseline.json
+          git diff --cached --quiet || git commit -m "chore: update eval baseline [skip ci]"
+          git push
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval-results.json
+          retention-days: 30

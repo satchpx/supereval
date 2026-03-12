@@ -1,0 +1,80 @@
+# supereval — AWS CodeBuild buildspec
+#
+# Usage
+# -----
+# Set SUPEREVAL_MODE via CodePipeline environment variable overrides:
+#   SUPEREVAL_MODE=pr   → compare against baseline (use on PR/feature pipelines)
+#   SUPEREVAL_MODE=main → update baseline and commit it back (use on main branch pipeline)
+#
+# Required environment variables (set in CodeBuild project or CodePipeline action):
+#   DATASET   — dataset name (e.g. aws-support-qa)
+#   MODEL     — Promptfoo provider ID (e.g. anthropic:claude-opus-4-6)
+#
+# Optional:
+#   ANTHROPIC_API_KEY — store in SSM Parameter Store and reference below
+#   SUPEREVAL_DATASETS_DIR — override datasets root (default: ./datasets)
+#   SUPEREVAL_DB_PATH      — override DuckDB path (default: ./supereval.db)
+#
+# IAM role
+# --------
+# The CodeBuild service role needs:
+#   - bedrock:InvokeModel (if using Bedrock models)
+#   - s3:GetObject, s3:ListObjectsV2 on your datasets bucket (if using S3 sources)
+#   - ssm:GetParameters (if pulling API keys from Parameter Store)
+#   - codecommit:GitPull + codecommit:GitPush on your repo (if committing baseline back)
+
+version: 0.2
+
+env:
+  variables:
+    DATASET: "my-dataset"
+    MODEL: "anthropic:claude-opus-4-6"
+    SUPEREVAL_MODE: "pr"
+  # Uncomment to pull API key from SSM Parameter Store:
+  # parameter-store:
+  #   ANTHROPIC_API_KEY: "/supereval/ANTHROPIC_API_KEY"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+      nodejs: 18
+    commands:
+      - pip install -e . --quiet
+      - npm install -g promptfoo --quiet
+
+  pre_build:
+    commands:
+      - echo "Dataset:$DATASET  Model:$MODEL  Mode:$SUPEREVAL_MODE"
+      - supereval dataset validate $DATASET
+
+  build:
+    commands:
+      - |
+        if [ "$SUPEREVAL_MODE" = "pr" ]; then
+          supereval run $DATASET \
+            --model $MODEL \
+            --compare-baseline \
+            --output results.json
+        else
+          supereval run $DATASET \
+            --model $MODEL \
+            --update-baseline \
+            --output results.json
+        fi
+
+  post_build:
+    commands:
+      - |
+        if [ "$SUPEREVAL_MODE" = "main" ] && [ -f "datasets/$DATASET/baseline.json" ]; then
+          git config user.email "codebuild@example.com"
+          git config user.name "CodeBuild"
+          git add datasets/$DATASET/baseline.json
+          git diff --cached --quiet || git commit -m "chore: update eval baseline for $DATASET [skip ci]"
+          git push
+        fi
+
+artifacts:
+  files:
+    - results.json
+  name: supereval-results

@@ -1,0 +1,25 @@
+# Eval run history — baseline.json is committed, individual run results are not
+datasets/*/results/
+eval-results.json
+results.json
+
+# DuckDB run history — local state, not shared
+supereval.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Test / tool caches
+.pytest_cache/
+node_modules/
+
+# Environment & secrets
+.env
+
+# macOS
+.DS_Store
