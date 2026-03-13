@@ -99,6 +99,17 @@ Tracks what is currently supported, what is planned, and what is out of scope.
 | `supereval agent history` subcommand | Supported | list / show / stats; reuses store.py |
 | Reference AgentRunner examples | Supported | `examples/`: custom ReAct/Bedrock, Bedrock Agents, LangChain |
 
+### Judge improvements (planned)
+
+Informed by comparison with AWS Bedrock's built-in LLM-as-judge metric suite (12 metrics across quality, safety, and style dimensions).
+
+| Feature | Notes |
+|---|---|
+| Split `judge_reasoning` into Faithfulness + Logical Coherence | Faithfulness = did the agent hallucinate from tool results?; Logical Coherence = did each step follow from the previous? Currently conflated into one call |
+| Add Helpfulness / Relevance dimension to `judge_answer` | Especially valuable for instruction-type datasets where correctness alone is insufficient |
+| Adopt per-metric ordinal scoring scales | Use metric-appropriate scales (binary for safety checks, 3-point for correctness, 5-point for quality, 7-point for helpfulness) instead of a single continuous 0.0–1.0 float for all dimensions |
+| Make ground truth optional in answer judging | Currently `expected_answer` is always required; judge should degrade gracefully to rubric-only scoring when no ground truth is available |
+
 ### Out of scope for v1 (prioritize later)
 
 | Feature | Notes |

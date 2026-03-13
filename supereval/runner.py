@@ -77,6 +77,8 @@ class RunResult:
         total_tokens: int = 0,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
+        provider_results: dict[str, list[CaseResult]] | None = None,
+        case_keys_ordered: list[str] | None = None,
     ):
         self.run_id = run_id or f"run_{uuid.uuid4().hex[:8]}"
         self.dataset = dataset
@@ -86,6 +88,9 @@ class RunResult:
         self.total_tokens = total_tokens
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
+        # Per-provider breakdown for comparison table (populated on multi-provider runs)
+        self.provider_results: dict[str, list[CaseResult]] = provider_results or {}
+        self.case_keys_ordered: list[str] = case_keys_ordered or []
 
     @property
     def total(self) -> int:
@@ -225,7 +230,11 @@ def _parse_promptfoo_output(raw: dict, providers: list[str], dataset_name: str) 
     completion_tokens = int(token_usage.get("completion", 0))
 
     # Aggregate per vars-key across providers: strictest (AND) semantics
+    # Also track per-provider results for comparison table
     cases_by_key: dict[str, dict] = {}
+    per_provider: dict[str, dict[str, CaseResult]] = {}  # provider_id -> {vars_key -> CaseResult}
+    case_keys_ordered: list[str] = []
+
     for item in raw_results:
         vars_ = {k: v for k, v in item.get("vars", {}).items()}
         key = _vars_key(vars_)
@@ -234,6 +243,14 @@ def _parse_promptfoo_output(raw: dict, providers: list[str], dataset_name: str) 
         latency = int(item.get("latencyMs", 0))
         cost = float(item.get("cost", 0.0))
 
+        # Extract provider ID from Promptfoo item
+        prov_field = item.get("provider", "")
+        if isinstance(prov_field, dict):
+            provider_id = prov_field.get("id", "unknown")
+        else:
+            provider_id = str(prov_field) if prov_field else "unknown"
+
+        # Aggregated (AND) pass/fail across providers
         if key not in cases_by_key:
             cases_by_key[key] = {
                 "vars": vars_,
@@ -243,6 +260,7 @@ def _parse_promptfoo_output(raw: dict, providers: list[str], dataset_name: str) 
                 "cost_usd": cost,
                 "count": 1,
             }
+            case_keys_ordered.append(key)
         else:
             entry = cases_by_key[key]
             entry["passed"] = entry["passed"] and passed
@@ -250,6 +268,13 @@ def _parse_promptfoo_output(raw: dict, providers: list[str], dataset_name: str) 
             entry["latency_ms"] += latency
             entry["cost_usd"] += cost
             entry["count"] += 1
+
+        # Per-provider breakdown
+        if provider_id not in per_provider:
+            per_provider[provider_id] = {}
+        per_provider[provider_id][key] = CaseResult(
+            vars=vars_, passed=passed, score=score, latency_ms=latency, cost_usd=cost
+        )
 
     cases = [
         CaseResult(
@@ -262,6 +287,12 @@ def _parse_promptfoo_output(raw: dict, providers: list[str], dataset_name: str) 
         for v in cases_by_key.values()
     ]
 
+    # Convert per_provider to ordered lists matching case_keys_ordered
+    provider_results: dict[str, list[CaseResult]] = {
+        pid: [pcases[k] for k in case_keys_ordered if k in pcases]
+        for pid, pcases in per_provider.items()
+    }
+
     return RunResult(
         dataset=dataset_name,
         cases=cases,
@@ -269,6 +300,8 @@ def _parse_promptfoo_output(raw: dict, providers: list[str], dataset_name: str) 
         total_tokens=total_tokens,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        provider_results=provider_results,
+        case_keys_ordered=case_keys_ordered,
     )
 
 

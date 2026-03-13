@@ -19,7 +19,7 @@ from .generator import (
     DEFAULT_REGION,
 )
 from .models import DatasetMeta, DatasetType, TYPE_TO_MODEL
-from .runner import run_eval
+from .runner import run_eval, _vars_key
 from .sources import LocalFileSource, S3Source
 from .storage import (
     append_cases,
@@ -44,6 +44,99 @@ app.add_typer(history_app, name="history")
 app.add_typer(agent_app, name="agent")
 
 console = Console()
+
+
+def _short_provider(provider_id: str) -> str:
+    """Shorten a provider ID for display in narrow table columns."""
+    # bedrock:us.anthropic.claude-sonnet-4-6 -> claude-sonnet-4-6
+    # anthropic:claude-opus-4-6 -> claude-opus-4-6
+    parts = provider_id.split(":")
+    name = parts[-1] if len(parts) > 1 else provider_id
+    # strip cross-region prefix (us. eu. ap.)
+    if name.startswith(("us.", "eu.", "ap.")):
+        name = name[3:]
+    # strip vendor prefix (anthropic. amazon. meta.)
+    for prefix in ("anthropic.", "amazon.", "meta.", "mistral."):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    return name[:28]
+
+
+def _short_case_label(vars_: dict) -> str:
+    """Extract a short display label from a test case's vars dict."""
+    for key in ("instruction", "query", "text"):
+        val = vars_.get(key, "")
+        if val:
+            # If it contains a 'Question:' line, use just that
+            if "Question:" in val:
+                val = val.split("Question:")[-1].strip()
+            val = val.replace("\n", " ")
+            return val[:60] + ("…" if len(val) > 60 else "")
+    return str(vars_)[:60]
+
+
+def _print_comparison_table(result, console: Console) -> None:
+    """Print a side-by-side per-provider comparison table. Only shown for multi-provider runs."""
+    if len(result.provider_results) < 2:
+        return
+
+    providers = list(result.provider_results.keys())
+    short_names = [_short_provider(p) for p in providers]
+
+    table = Table(
+        title="Model Comparison",
+        show_lines=True,
+        title_style="bold",
+    )
+    table.add_column("Case", style="cyan", max_width=62, no_wrap=False)
+    for name in short_names:
+        table.add_column(name, justify="center", min_width=22)
+
+    # One row per test case
+    for key in result.case_keys_ordered:
+        # Use vars from whichever provider has this key
+        label = ""
+        for pid in providers:
+            cases_map = {_vars_key(c.vars): c for c in result.provider_results.get(pid, [])}
+            if key in cases_map:
+                label = _short_case_label(cases_map[key].vars)
+                break
+
+        row = [label]
+        for pid in providers:
+            cases_map = {_vars_key(c.vars): c for c in result.provider_results.get(pid, [])}
+            c = cases_map.get(key)
+            if c is None:
+                row.append("—")
+            else:
+                icon = "[green]✓[/green]" if c.passed else "[red]✗[/red]"
+                lat = f"{c.latency_ms}ms" if c.latency_ms else "—"
+                row.append(f"{icon}  {c.score:.2f}  {lat}")
+        table.add_row(*row)
+
+    # Summary row
+    summary = ["[bold]Summary[/bold]"]
+    for pid in providers:
+        cases = result.provider_results.get(pid, [])
+        if not cases:
+            summary.append("—")
+            continue
+        passed = sum(1 for c in cases if c.passed)
+        pr = passed / len(cases)
+        color = "green" if pr >= 0.8 else ("yellow" if pr >= 0.6 else "red")
+        cost = sum(c.cost_usd for c in cases)
+        avg_lat = sum(c.latency_ms for c in cases) / len(cases)
+        cost_str = f"  ${cost:.4f}" if cost > 0 else ""
+        summary.append(f"[{color}][bold]{pr:.0%}[/bold][/{color}]{cost_str}  avg {avg_lat:.0f}ms")
+    table.add_row(*summary)
+
+    console.print()
+    console.print(table)
+    console.print(
+        "[dim]  score = rubric quality (0.0–1.0 as judged by LLM); "
+        "✓/✗ = pass/fail against all assertions[/dim]"
+    )
 
 
 @dataset_app.command("create")
@@ -302,6 +395,9 @@ def run(
         for case in result.cases:
             if not case.passed:
                 rprint(f"    [red]✗[/red]  {case.vars}")
+
+    # --- Multi-provider comparison table ---
+    _print_comparison_table(result, console)
 
     # --- Baseline comparison ---
     exit_code = 0
