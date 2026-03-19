@@ -252,3 +252,27 @@ supereval history stats aws-support-qa --last 20
 | **[DeepEval](https://docs.confident-ai.com)** | Python-native evals with rich built-in metrics | Teams preferring config-over-code |
 | **[RAGAS](https://docs.ragas.io)** | RAG eval with embedding-based metrics (context recall, precision) | Teams that don't want an external dependency or embedding model |
 | **[Braintrust](https://www.braintrust.dev)** | Polished UI, team collaboration, dataset management | Fully self-hosted / offline-only setups |
+
+---
+
+## FAQ
+
+### How is supereval different from Promptfoo?
+
+Promptfoo is the engine supereval wraps for LLM evals. The gap supereval fills is everything around it: a dataset registry, versioned test cases committed to git, baseline tracking, run history, and agent eval. With raw Promptfoo you write YAML configs by hand for every run — there is no persistent dataset layer, no `compare-baseline` CI gate, and no agent eval. supereval is Promptfoo with a dataset workflow and an agent eval framework on top.
+
+### How is supereval different from Langfuse?
+
+Different jobs. Langfuse is for production observability — trace what your app does in live traffic and score those traces after the fact. supereval is pre-deployment — you run it before shipping to catch regressions. They are complementary: supereval gates your PRs, Langfuse monitors production.
+
+### How is supereval different from DeepEval?
+
+DeepEval is the closest alternative. It is Python-native with rich built-in metrics (G-Eval, hallucination checks, RAGAS-style). The difference is philosophy: DeepEval is code-first — you write test functions in Python. supereval is data-first — you manage JSONL datasets, commit baselines to git, and run evals as a CLI command with no Python required. supereval also has an MCP server (run evals from Claude Code or Kiro via natural language) and a built-in agent eval framework; DeepEval has neither.
+
+### Do I need Promptfoo installed?
+
+Only for `supereval run` (LLM eval). RAG eval (`supereval rag run`) and agent eval (`supereval agent run`) call Bedrock directly — no Promptfoo needed. Install it with `npm install -g promptfoo`.
+
+### Does supereval require AWS?
+
+Bedrock is the default for model calls and the judge, but it is not required for everything. You can run LLM evals against Anthropic API or OpenAI models (`pip install 'supereval[anthropic]'` / `pip install 'supereval[openai]'`). AWS is only required for Bedrock-backed features: Bedrock model providers, the Bedrock judge in agent eval, and Titan Embed in RAG eval.
