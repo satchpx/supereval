@@ -1,0 +1,57 @@
+site_name: supereval
+site_description: LLM and Agent evaluation dataset registry and tooling
+repo_url: https://github.com/satchpx/supereval
+repo_name: supereval
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: tutorial.md
+  - Guides:
+    - How Scoring Works: scoring.md
+    - Writing Good Test Cases: writing-test-cases.md
+    - MCP Server Setup: mcp.md
+    - Custom Promptfoo Config: custom-config.md
+    - Agent Runner Examples: agent-examples.md
+  - Reference:
+    - Troubleshooting: troubleshooting.md
+    - Upgrading: upgrading.md
+  - Roadmap: roadmap.md

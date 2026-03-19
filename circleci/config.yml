@@ -1,0 +1,100 @@
+# supereval — CircleCI config template
+#
+# Usage
+# -----
+# Copy this file to .circleci/config.yml in your project and customize.
+#
+# Required environment variables (set in Project Settings → Environment Variables):
+#   DATASET            — dataset name (e.g. aws-support-qa)
+#   MODEL              — Promptfoo provider ID (e.g. anthropic:claude-opus-4-6)
+#   ANTHROPIC_API_KEY  — API key
+#
+# Optional:
+#   SUPEREVAL_DATASETS_DIR — override datasets root (default: ./datasets)
+#   SUPEREVAL_DB_PATH      — override DuckDB path (default: ./supereval.db)
+
+version: 2.1
+
+orbs:
+  node: circleci/node@5
+
+executors:
+  supereval:
+    docker:
+      - image: cimg/python:3.11-node
+    resource_class: medium
+
+commands:
+  install_supereval:
+    steps:
+      - run:
+          name: Install supereval
+          command: pip install -e .
+      - run:
+          name: Install promptfoo
+          command: npm install -g promptfoo
+      - run:
+          name: Validate dataset
+          command: supereval dataset validate $DATASET
+
+jobs:
+  eval_pr:
+    executor: supereval
+    steps:
+      - checkout
+      - install_supereval
+      - run:
+          name: Run eval (compare baseline)
+          command: |
+            supereval run $DATASET \
+              --model $MODEL \
+              --compare-baseline \
+              --output eval-results.json
+      - store_artifacts:
+          path: eval-results.json
+          destination: eval-results
+
+  eval_main:
+    executor: supereval
+    steps:
+      - checkout
+      - install_supereval
+      - run:
+          name: Run eval (update baseline)
+          command: |
+            supereval run $DATASET \
+              --model $MODEL \
+              --update-baseline \
+              --output eval-results.json
+      - run:
+          name: Commit updated baseline
+          command: |
+            if [ -f "datasets/$DATASET/baseline.json" ]; then
+              git config user.email "circleci@example.com"
+              git config user.name "CircleCI"
+              git add datasets/$DATASET/baseline.json
+              git diff --cached --quiet || git commit -m "chore: update eval baseline for $DATASET [skip ci]"
+              git push origin $CIRCLE_BRANCH
+            fi
+      - store_artifacts:
+          path: eval-results.json
+          destination: eval-results
+
+workflows:
+  eval:
+    jobs:
+      # On pull requests: compare against baseline
+      - eval_pr:
+          filters:
+            branches:
+              ignore: main
+          context:
+            - supereval-secrets  # holds ANTHROPIC_API_KEY, MODEL, DATASET
+
+      # On push to main: update baseline
+      - eval_main:
+          filters:
+            branches:
+              only: main
+          context:
+            - supereval-secrets

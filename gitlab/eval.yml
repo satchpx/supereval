@@ -1,0 +1,81 @@
+# supereval — GitLab CI template
+#
+# Usage
+# -----
+# Include this file in your .gitlab-ci.yml:
+#
+#   include:
+#     - local: gitlab/eval.yml
+#
+# Or copy and customize as a standalone stage in your pipeline.
+#
+# Required CI/CD variables (set in Settings → CI/CD → Variables):
+#   DATASET            — dataset name (e.g. aws-support-qa)
+#   MODEL              — Promptfoo provider ID (e.g. anthropic:claude-opus-4-6)
+#   ANTHROPIC_API_KEY  — API key (mark as Masked)
+#
+# Optional:
+#   SUPEREVAL_DATASETS_DIR — override datasets root (default: ./datasets)
+#   SUPEREVAL_DB_PATH      — override DuckDB path (default: ./supereval.db)
+
+variables:
+  DATASET: "my-dataset"
+  MODEL: "anthropic:claude-opus-4-6"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+
+stages:
+  - eval
+
+.supereval_base:
+  image: python:${PYTHON_VERSION}-slim
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq nodejs npm
+    - npm install -g promptfoo --quiet
+    - pip install -e . --quiet
+    - supereval dataset validate $DATASET
+
+# On merge requests: compare against committed baseline. Fails if any regression.
+eval:pr:
+  extends: .supereval_base
+  stage: eval
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - |
+      supereval run $DATASET \
+        --model $MODEL \
+        --compare-baseline \
+        --output eval-results.json
+  artifacts:
+    when: always
+    paths:
+      - eval-results.json
+    expire_in: 30 days
+
+# On push to default branch: run eval and update the baseline.
+# Commits the updated baseline.json back so future MRs compare against it.
+eval:main:
+  extends: .supereval_base
+  stage: eval
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  script:
+    - |
+      supereval run $DATASET \
+        --model $MODEL \
+        --update-baseline \
+        --output eval-results.json
+    - |
+      if [ -f "datasets/$DATASET/baseline.json" ]; then
+        git config user.email "gitlab-ci@example.com"
+        git config user.name "GitLab CI"
+        git add datasets/$DATASET/baseline.json
+        git diff --cached --quiet || git commit -m "chore: update eval baseline for $DATASET [skip ci]"
+        git push "https://oauth2:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:$CI_DEFAULT_BRANCH
+      fi
+  artifacts:
+    when: always
+    paths:
+      - eval-results.json
+    expire_in: 30 days
