@@ -109,9 +109,30 @@ Set `answer_match` on the test case `expected` block:
 | `contains` (default) | `final_answer` contains the expected string (case-insensitive) |
 | `exact` | `final_answer` equals the expected string exactly (case-insensitive, stripped) |
 | `regex` | `final_answer` matches the expected regex pattern |
-| `llm_judge` | Bedrock judge evaluates correctness; requires `--judge-model` |
+| `llm_judge` | Bedrock judge evaluates three sub-metrics; requires `--judge-model` |
 
 When `answer_match: llm_judge` is set but no `--judge-model` is provided, scoring falls back to `contains` and the result notes the fallback.
+
+#### LLM judge sub-metrics for answer scoring
+
+When `llm_judge` is used, three separate Bedrock calls are made and their normalized scores are averaged to produce `answer_score`:
+
+| Sub-metric | Scale | What it measures |
+|---|---|---|
+| **Correctness** | 3-point: `incorrect` / `partially correct` / `correct` | Is the final answer factually correct? |
+| **Completeness** | 5-point Likert: `not at all` → `yes` | Does the answer address every part of the task? |
+| **Helpfulness** | 5-point: `not helpful` → `very helpful` | Is the response useful and actionable for the user's need? |
+
+The raw label (e.g. `"partially correct"`) and raw integer score are surfaced in the result alongside the normalized 0.0–1.0 float. This is especially useful for `instruction` datasets where correctness alone isn't the right signal.
+
+#### LLM judge sub-metrics for reasoning scoring
+
+When `min_reasoning_score` is configured, two Bedrock calls produce `reasoning_score`:
+
+| Sub-metric | Scale | What it measures |
+|---|---|---|
+| **Faithfulness** | 5-point: `none` / `some` / `approximately half` / `most` / `all` | Did the agent hallucinate facts not present in tool results? |
+| **Logical Coherence** | 5-point Likert: `not at all` → `yes` | Does each reasoning step follow logically from the previous? |
 
 ### Tool scoring
 
@@ -154,3 +175,107 @@ Default weights: answer 40%, tool 40%, efficiency 5%, reasoning 15%. When no jud
 ```
 
 A case fails if any dimension score falls below its threshold. `min_reasoning_score: null` means reasoning is scored but never causes a failure — useful while you're calibrating the judge.
+
+---
+
+## RAG eval scoring
+
+RAG evals run independently of Promptfoo — supereval calls the model directly, then scores each case using up to three signals.
+
+### Three signals
+
+| Signal | When available | What it measures |
+|---|---|---|
+| **Contains check** | Always | Does the model's answer contain the `ground_truth` string? (case-insensitive) |
+| **Answer Correctness** | With `--judge-model` | Is the answer factually correct relative to the ground truth? |
+| **Faithfulness** | With `--judge-model` | Is the answer grounded in the retrieved contexts, or does it hallucinate? |
+
+The contains check runs on every case regardless of whether a judge model is configured. It's a cheap, deterministic signal that catches completely wrong answers without any LLM call.
+
+### Scoring without `--judge-model`
+
+When no judge is configured:
+
+- `contains_score` — 1.0 if answer contains ground truth, 0.0 otherwise
+- `answer_correctness_score` — falls back to `contains_score`
+- `faithfulness_score` — defaults to 1.0 (unverified)
+- `composite_score` — equals `answer_correctness_score`
+
+### Scoring with `--judge-model`
+
+When a judge model is configured, two separate Bedrock calls are made per case:
+
+#### Faithfulness (5-point scale)
+
+| Label | Normalized score | Meaning |
+|---|---|---|
+| `none` | 0.0 | Answer is entirely hallucinated |
+| `some` | 0.25 | Most claims are unsupported |
+| `approximately half` | 0.5 | Mixed — some grounded, some not |
+| `most` | 0.75 | Mostly grounded with minor unsupported details |
+| `all` | 1.0 | Every claim is supported by a retrieved context |
+
+#### Answer Correctness (3-point scale)
+
+| Label | Normalized score | Meaning |
+|---|---|---|
+| `incorrect` | 0.0 | Answer contradicts or misses the ground truth |
+| `partially correct` | 0.5 | Answer captures some but not all of the ground truth |
+| `correct` | 1.0 | Answer is factually correct relative to the ground truth |
+
+#### Composite score
+
+```
+composite = (faithfulness_weight × faithfulness_score) + (answer_correctness_weight × answer_correctness_score)
+```
+
+Default weights: faithfulness 50%, answer correctness 50%. Set per-dataset in `dataset.json`:
+
+```json
+{
+  "thresholds": {
+    "faithfulness_weight": 0.4,
+    "answer_correctness_weight": 0.6
+  }
+}
+```
+
+### Pass/fail semantics
+
+A RAG case passes when all enabled checks satisfy their thresholds. The checks evaluated depend on what's configured:
+
+| Check | Default behaviour |
+|---|---|
+| `require_contains` | `true` — case fails if answer doesn't contain ground truth |
+| `min_answer_correctness_score` | `0.5` — case fails if answer correctness score is below this |
+| `min_faithfulness_score` | `null` — scored but never fails the case by default |
+
+Set `min_faithfulness_score` when you need strict hallucination detection:
+
+```json
+{
+  "thresholds": {
+    "require_contains": true,
+    "min_faithfulness_score": 0.75,
+    "min_answer_correctness_score": 0.5
+  }
+}
+```
+
+### RAG thresholds
+
+```json
+{
+  "thresholds": {
+    "pass_rate": 1.0,
+    "fail_on_regression": true,
+    "require_contains": true,
+    "min_faithfulness_score": null,
+    "min_answer_correctness_score": 0.5,
+    "faithfulness_weight": 0.5,
+    "answer_correctness_weight": 0.5,
+    "max_cost_usd": null,
+    "max_p95_latency_ms": null
+  }
+}
+```

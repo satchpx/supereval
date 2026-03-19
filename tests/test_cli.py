@@ -199,16 +199,83 @@ class TestRun:
         assert data["run_id"] == "run_test"
 
 
-class TestGenerate:
-    def test_fails_for_non_qa_dataset(self, cli_env, classification_meta, doc_dir):
+class TestDatasetVersion:
+    def test_tag_creates_version(self, cli_env, qa_meta):
+        result = invoke("dataset", "version", "tag", "test-qa", "v1.0.0", env=cli_env)
+        assert result.exit_code == 0
+        assert "v1.0.0" in result.output
+
+    def test_tag_with_description(self, cli_env, qa_meta):
         result = invoke(
-            "generate", "test-classification",
-            "--from", str(doc_dir),
+            "dataset", "version", "tag", "test-qa", "v1.0.0",
+            "--description", "first release",
+            env=cli_env,
+        )
+        assert result.exit_code == 0
+        assert "first release" in result.output
+
+    def test_tag_duplicate_fails(self, cli_env, qa_meta):
+        invoke("dataset", "version", "tag", "test-qa", "v1.0.0", env=cli_env)
+        result = invoke("dataset", "version", "tag", "test-qa", "v1.0.0", env=cli_env)
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+
+    def test_tag_invalid_format_fails(self, cli_env, qa_meta):
+        result = invoke("dataset", "version", "tag", "test-qa", "1.0.0", env=cli_env)
+        assert result.exit_code != 0
+        assert "Invalid version" in result.output
+
+    def test_list_empty(self, cli_env, qa_meta):
+        result = invoke("dataset", "version", "list", "test-qa", env=cli_env)
+        assert result.exit_code == 0
+        assert "No versions" in result.output
+
+    def test_list_shows_versions(self, cli_env, qa_meta):
+        invoke("dataset", "version", "tag", "test-qa", "v1.0.0", env=cli_env)
+        invoke("dataset", "version", "tag", "test-qa", "v1.1.0", env=cli_env)
+        result = invoke("dataset", "version", "list", "test-qa", env=cli_env)
+        assert result.exit_code == 0
+        assert "v1.0.0" in result.output
+        assert "v1.1.0" in result.output
+
+    def test_show_version(self, cli_env, qa_meta, qa_cases):
+        from supereval.storage import append_cases
+        append_cases("test-qa", qa_cases)
+        invoke("dataset", "version", "tag", "test-qa", "v1.0.0", env=cli_env)
+        result = invoke("dataset", "version", "show", "test-qa", "v1.0.0", env=cli_env)
+        assert result.exit_code == 0
+        assert "v1.0.0" in result.output
+
+    def test_show_missing_version_fails(self, cli_env, qa_meta):
+        result = invoke("dataset", "version", "show", "test-qa", "v9.9.9", env=cli_env)
+        assert result.exit_code != 0
+
+    def test_restore_with_yes_flag(self, cli_env, qa_meta, qa_cases, datasets_dir):
+        from supereval.storage import append_cases, load_cases
+        append_cases("test-qa", qa_cases)
+        invoke("dataset", "version", "tag", "test-qa", "v1.0.0", env=cli_env)
+        # Add an extra case after tagging
+        append_cases("test-qa", [qa_cases[0]])
+        assert len(load_cases("test-qa")) == len(qa_cases) + 1
+        result = invoke(
+            "dataset", "version", "restore", "test-qa", "v1.0.0",
+            "--yes",
+            env=cli_env,
+        )
+        assert result.exit_code == 0
+        assert "Restored" in result.output
+        assert len(load_cases("test-qa")) == len(qa_cases)
+
+    def test_restore_missing_version_fails(self, cli_env, qa_meta):
+        result = invoke(
+            "dataset", "version", "restore", "test-qa", "v9.9.9",
+            "--yes",
             env=cli_env,
         )
         assert result.exit_code != 0
-        assert "qa" in result.output.lower()
 
+
+class TestGenerate:
     def test_fails_for_missing_path(self, cli_env, qa_meta):
         result = invoke(
             "generate", "test-qa",
@@ -273,6 +340,222 @@ class TestGenerate:
             )
         assert result.exit_code == 0
         assert "Imported 1 case" in result.output
+
+    def test_openai_backend_uses_openai_generator(self, cli_env, qa_meta, doc_dir, tmp_path):
+        from supereval.generator import GeneratedCase
+
+        fake_cases = [
+            GeneratedCase(
+                description="S3 size",
+                input={"query": "Max S3 size?"},
+                expected={"ground_truth": "5 TB"},
+                tags=[], difficulty="easy", case_type="factual", source_excerpt="",
+            )
+        ]
+        staged = tmp_path / "staged.jsonl"
+        with patch("supereval.cli.OpenAIGenerator") as MockGen:
+            MockGen.return_value.generate.return_value = fake_cases
+            result = invoke(
+                "generate", "test-qa",
+                "--from", str(doc_dir / "s3-guide.md"),
+                "--backend", "openai",
+                "--output", str(staged),
+                env=cli_env,
+            )
+        assert result.exit_code == 0
+        MockGen.assert_called_once()
+
+    def test_unknown_backend_fails(self, cli_env, qa_meta, doc_dir):
+        result = invoke(
+            "generate", "test-qa",
+            "--from", str(doc_dir),
+            "--backend", "unknown-backend",
+            env=cli_env,
+        )
+        assert result.exit_code != 0
+        assert "Unknown backend" in result.output
+
+    def test_interactive_keep_all(self, cli_env, qa_meta, doc_dir, tmp_path):
+        from supereval.generator import GeneratedCase
+
+        fake_cases = [
+            GeneratedCase(
+                description="S3 size limit",
+                input={"query": "What is the max S3 object size?"},
+                expected={"ground_truth": "5 TB"},
+                tags=["s3"], difficulty="easy", case_type="factual",
+                source_excerpt="Maximum object size is 5 TB.",
+            ),
+            GeneratedCase(
+                description="Lambda timeout",
+                input={"query": "What is the max Lambda timeout?"},
+                expected={"ground_truth": "15 minutes"},
+                tags=["lambda"], difficulty="easy", case_type="factual",
+                source_excerpt="Max timeout is 15 minutes.",
+            ),
+        ]
+        staged = tmp_path / "staged.jsonl"
+        with patch("supereval.cli.BedrockGenerator") as MockGen:
+            MockGen.return_value.generate.return_value = fake_cases
+            # "k\nk\n" — keep both cases
+            result = runner.invoke(
+                app,
+                ["generate", "test-qa",
+                 "--from", str(doc_dir / "s3-guide.md"),
+                 "--count", "2",
+                 "--output", str(staged),
+                 "--interactive"],
+                input="k\nk\n",
+                env=cli_env,
+            )
+        assert result.exit_code == 0
+        assert "Review complete" in result.output
+        assert "2 case(s) approved" in result.output
+        lines = [l for l in staged.read_text().strip().splitlines() if l]
+        assert len(lines) == 2
+
+    def test_interactive_skip_all_exits_cleanly(self, cli_env, qa_meta, doc_dir, tmp_path):
+        from supereval.generator import GeneratedCase
+
+        fake_cases = [
+            GeneratedCase(
+                description="S3 size limit",
+                input={"query": "Max S3 size?"},
+                expected={"ground_truth": "5 TB"},
+                tags=[], difficulty="easy", case_type="factual",
+                source_excerpt="",
+            ),
+        ]
+        staged = tmp_path / "staged.jsonl"
+        with patch("supereval.cli.BedrockGenerator") as MockGen:
+            MockGen.return_value.generate.return_value = fake_cases
+            # "s\n" — skip the only case
+            result = runner.invoke(
+                app,
+                ["generate", "test-qa",
+                 "--from", str(doc_dir / "s3-guide.md"),
+                 "--count", "1",
+                 "--output", str(staged),
+                 "--interactive"],
+                input="s\n",
+                env=cli_env,
+            )
+        assert result.exit_code == 0
+        assert "No cases approved" in result.output
+        assert not staged.exists()
+
+    def test_interactive_quit_stops_early(self, cli_env, qa_meta, doc_dir, tmp_path):
+        from supereval.generator import GeneratedCase
+
+        fake_cases = [
+            GeneratedCase(
+                description="Case 1",
+                input={"query": "Q1?"}, expected={"ground_truth": "A1"},
+                tags=[], difficulty="easy", case_type="factual", source_excerpt="",
+            ),
+            GeneratedCase(
+                description="Case 2",
+                input={"query": "Q2?"}, expected={"ground_truth": "A2"},
+                tags=[], difficulty="easy", case_type="factual", source_excerpt="",
+            ),
+        ]
+        staged = tmp_path / "staged.jsonl"
+        with patch("supereval.cli.BedrockGenerator") as MockGen:
+            MockGen.return_value.generate.return_value = fake_cases
+            # keep case 1, then quit before case 2
+            result = runner.invoke(
+                app,
+                ["generate", "test-qa",
+                 "--from", str(doc_dir / "s3-guide.md"),
+                 "--count", "2",
+                 "--output", str(staged),
+                 "--interactive"],
+                input="k\nq\n",
+                env=cli_env,
+            )
+        assert result.exit_code == 0
+        lines = [l for l in staged.read_text().strip().splitlines() if l]
+        assert len(lines) == 1
+        assert json.loads(lines[0])["description"] == "Case 1"
+
+
+# ---------------------------------------------------------------------------
+# run-all subcommand tests
+# ---------------------------------------------------------------------------
+
+def _make_pass_result(dataset: str) -> "RunResult":
+    from supereval.runner import CaseResult, RunResult
+    return RunResult(
+        dataset=dataset,
+        providers=["test-model"],
+        cases=[CaseResult(vars={"query": "q1"}, passed=True, score=1.0)],
+        run_id=f"run_{dataset}",
+    )
+
+
+def _make_fail_result(dataset: str) -> "RunResult":
+    from supereval.runner import CaseResult, RunResult
+    return RunResult(
+        dataset=dataset,
+        providers=["test-model"],
+        cases=[CaseResult(vars={"query": "q1"}, passed=False, score=0.0)],
+        run_id=f"run_{dataset}",
+    )
+
+
+class TestRunAll:
+    def test_requires_model_or_config(self, cli_env):
+        result = invoke("run-all", env=cli_env)
+        assert result.exit_code != 0
+
+    def test_no_datasets_exits_cleanly(self, cli_env):
+        result = invoke("run-all", "--model", "test-model", env=cli_env)
+        assert result.exit_code == 0
+        assert "No datasets" in result.output
+
+    def test_all_pass_exits_zero(self, cli_env, qa_dataset_with_cases):
+        with patch("supereval.cli.run_eval", return_value=_make_pass_result("test-qa")):
+            result = invoke("run-all", "--model", "test-model", env=cli_env)
+        assert result.exit_code == 0
+        assert "All datasets passed" in result.output
+
+    def test_any_failure_exits_nonzero(self, cli_env, qa_dataset_with_cases):
+        with patch("supereval.cli.run_eval", return_value=_make_fail_result("test-qa")):
+            result = invoke("run-all", "--model", "test-model", env=cli_env)
+        assert result.exit_code != 0
+        assert "failed" in result.output.lower()
+
+    def test_summary_table_lists_all_datasets(self, cli_env, qa_dataset_with_cases):
+        with patch("supereval.cli.run_eval", return_value=_make_pass_result("test-qa")):
+            result = invoke("run-all", "--model", "test-model", env=cli_env)
+        assert "test-qa" in result.output
+
+    def test_update_baseline_after_run(self, cli_env, qa_dataset_with_cases, datasets_dir):
+        with patch("supereval.cli.run_eval", return_value=_make_pass_result("test-qa")):
+            result = invoke(
+                "run-all", "--model", "test-model", "--update-baseline", env=cli_env
+            )
+        assert result.exit_code == 0
+        assert (datasets_dir / "test-qa" / "baseline.json").exists()
+
+    def test_output_dir_writes_json_files(self, cli_env, qa_dataset_with_cases, tmp_path):
+        out_dir = tmp_path / "results"
+        with patch("supereval.cli.run_eval", return_value=_make_pass_result("test-qa")):
+            result = invoke(
+                "run-all", "--model", "test-model",
+                "--output-dir", str(out_dir),
+                env=cli_env,
+            )
+        assert result.exit_code == 0
+        assert (out_dir / "test-qa.json").exists()
+        data = json.loads((out_dir / "test-qa.json").read_text())
+        assert data["dataset"] == "test-qa"
+
+    def test_run_error_continues_and_exits_nonzero(self, cli_env, qa_dataset_with_cases):
+        with patch("supereval.cli.run_eval", side_effect=RuntimeError("promptfoo failed")):
+            result = invoke("run-all", "--model", "test-model", env=cli_env)
+        assert result.exit_code != 0
+        assert "ERROR" in result.output
 
 
 # ---------------------------------------------------------------------------

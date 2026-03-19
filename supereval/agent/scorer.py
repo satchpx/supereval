@@ -74,6 +74,12 @@ def score_trajectory(
                 )
                 score.answer_score = result.score
                 score.answer_reason = result.reason
+                score.correctness_raw = result.correctness.raw
+                score.correctness_label = result.correctness.label
+                score.completeness_raw = result.completeness.raw
+                score.completeness_label = result.completeness.label
+                score.helpfulness_raw = result.helpfulness.raw
+                score.helpfulness_label = result.helpfulness.label
             else:
                 # Graceful fallback when no judge is configured
                 score.answer_score = (
@@ -186,6 +192,10 @@ def score_trajectory(
         result = judge.judge_reasoning(task=task, trajectory=trajectory)
         score.reasoning_score = result.score
         score.reasoning_reason = result.reason
+        score.faithfulness_raw = result.faithfulness.raw
+        score.faithfulness_label = result.faithfulness.label
+        score.coherence_raw = result.logical_coherence.raw
+        score.coherence_label = result.logical_coherence.label
         if score.reasoning_score < thresholds.min_reasoning_score:
             score.failure_reasons.append(
                 f"Reasoning score {score.reasoning_score:.2f} below threshold "

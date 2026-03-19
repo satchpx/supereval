@@ -3,6 +3,9 @@ datasets/*/results/
 eval-results.json
 results.json
 
+# Staged generation output (supereval generate writes *_staged.jsonl to cwd)
+*_staged.jsonl
+
 # DuckDB run history — local state, not shared
 supereval.db
 
@@ -29,3 +32,9 @@ node_modules/
 
 # macOS
 .DS_Store
+
+# MkDocs build output
+site/
+
+# Generated docs artifacts
+*.pdf

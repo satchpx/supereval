@@ -29,7 +29,7 @@ DEFAULT_PROMPTS: dict[DatasetType, str] = {
     ),
     DatasetType.instruction: (
         "{{instruction}}"
-        "{{% if document %}}\n\n---\n{{document}}{{% endif %}}"
+        "{% if document %}\n\n---\n{{document}}{% endif %}"
     ),
 }
 
@@ -189,9 +189,19 @@ def _build_promptfoo_config(
         config["tests"] = tests
         return config
 
+    # Use the first Bedrock model as the llm-rubric judge so no OpenAI key is needed.
+    judge = next((m for m in models if m.startswith("bedrock:")), None)
+    if judge is None:
+        judge = "bedrock:us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
     return {
         "prompts": [_resolve_prompt(dataset_name, prompt)],
         "providers": models,
+        "defaultTest": {
+            "options": {
+                "provider": judge,
+            },
+        },
         "tests": tests,
     }
 

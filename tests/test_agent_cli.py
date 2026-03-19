@@ -282,6 +282,215 @@ class TestAgentRun:
 
 
 # ---------------------------------------------------------------------------
+# agent generate command
+# ---------------------------------------------------------------------------
+
+def _write_traces(tmp_path, traces: list[dict]) -> Path:
+    p = tmp_path / "traces.jsonl"
+    p.write_text("\n".join(json.dumps(t) for t in traces) + "\n")
+    return p
+
+
+SIMPLE_TRACE = {
+    "task": "Which region is my-data-bucket in?",
+    "steps": [
+        {"type": "thought", "content": "I should search."},
+        {
+            "type": "tool_call", "tool": "search_kb",
+            "arguments": {"query": "my-data-bucket"},
+            "result": {"region": "us-west-2"},
+        },
+        {"type": "answer", "content": "The bucket is in us-west-2."},
+    ],
+    "final_answer": "us-west-2",
+    "metadata": {"description": "S3 region lookup", "difficulty": "easy", "tags": ["s3"]},
+}
+
+
+class TestAgentGenerate:
+    def test_stages_cases_from_traces(self, cli_env, agent_meta, tmp_path):
+        traces_file = _write_traces(tmp_path, [SIMPLE_TRACE])
+        staged = tmp_path / "staged.jsonl"
+        result = invoke(
+            "generate", "test-agent",
+            "--from", str(traces_file),
+            "--output", str(staged),
+            env=cli_env,
+        )
+        assert result.exit_code == 0
+        assert staged.exists()
+        case = json.loads(staged.read_text().strip())
+        assert case["input"]["task"] == "Which region is my-data-bucket in?"
+        assert case["expected"]["answer"] == "us-west-2"
+        assert case["expected"]["must_call"] == ["search_kb"]
+
+    def test_auto_import_adds_cases(self, cli_env, agent_dataset_with_cases, tmp_path):
+        # agent_dataset_with_cases already has cases; we add one more
+        traces_file = _write_traces(tmp_path, [SIMPLE_TRACE])
+        result = invoke(
+            "generate", "test-agent",
+            "--from", str(traces_file),
+            "--auto-import",
+            env=cli_env,
+        )
+        assert result.exit_code == 0
+        assert "Imported 1 case" in result.output
+
+    def test_multiple_traces_produce_multiple_cases(self, cli_env, agent_meta, tmp_path):
+        traces_file = _write_traces(tmp_path, [SIMPLE_TRACE, SIMPLE_TRACE])
+        staged = tmp_path / "staged.jsonl"
+        result = invoke(
+            "generate", "test-agent",
+            "--from", str(traces_file),
+            "--output", str(staged),
+            env=cli_env,
+        )
+        assert result.exit_code == 0
+        lines = [l for l in staged.read_text().strip().splitlines() if l]
+        assert len(lines) == 2
+
+    def test_missing_file_fails(self, cli_env, agent_meta):
+        result = invoke(
+            "generate", "test-agent",
+            "--from", "/nonexistent/traces.jsonl",
+            env=cli_env,
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+    def test_invalid_traces_fail(self, cli_env, agent_meta, tmp_path):
+        bad = tmp_path / "bad.jsonl"
+        bad.write_text("not json at all\n")
+        result = invoke(
+            "generate", "test-agent",
+            "--from", str(bad),
+            env=cli_env,
+        )
+        assert result.exit_code != 0
+        assert "Line 1" in result.output
+
+    def test_missing_dataset_fails(self, cli_env, tmp_path):
+        traces_file = _write_traces(tmp_path, [SIMPLE_TRACE])
+        result = invoke(
+            "generate", "nonexistent-dataset",
+            "--from", str(traces_file),
+            env=cli_env,
+        )
+        assert result.exit_code != 0
+
+    def test_interactive_keep_all(self, cli_env, agent_meta, tmp_path):
+        traces_file = _write_traces(tmp_path, [SIMPLE_TRACE, SIMPLE_TRACE])
+        staged = tmp_path / "staged.jsonl"
+        result = runner.invoke(
+            app,
+            ["agent", "generate", "test-agent",
+             "--from", str(traces_file),
+             "--output", str(staged),
+             "--interactive"],
+            input="k\nk\n",
+            env=cli_env,
+        )
+        assert result.exit_code == 0
+        assert "Review complete" in result.output
+        assert "2 case(s) approved" in result.output
+        lines = [l for l in staged.read_text().strip().splitlines() if l]
+        assert len(lines) == 2
+
+    def test_interactive_skip_all_exits_cleanly(self, cli_env, agent_meta, tmp_path):
+        traces_file = _write_traces(tmp_path, [SIMPLE_TRACE])
+        staged = tmp_path / "staged.jsonl"
+        result = runner.invoke(
+            app,
+            ["agent", "generate", "test-agent",
+             "--from", str(traces_file),
+             "--output", str(staged),
+             "--interactive"],
+            input="s\n",
+            env=cli_env,
+        )
+        assert result.exit_code == 0
+        assert "No cases approved" in result.output
+        assert not staged.exists()
+
+    def test_document_mode_stages_cases(self, cli_env, agent_meta, doc_dir, tmp_path):
+        from supereval.agent.generator import GeneratedAgentCase
+        fake_cases = [
+            GeneratedAgentCase(
+                task="Which region is my-data-bucket in?",
+                description="Region lookup",
+                expected_answer="us-west-2",
+                must_call=["search_kb"],
+                must_call_with=[],
+                max_steps=4,
+                difficulty="easy",
+                tags=["s3"],
+                source_excerpt="The bucket is in us-west-2.",
+            )
+        ]
+        staged = tmp_path / "staged.jsonl"
+        with patch("supereval.agent.cli.AgentBedrockGenerator") as MockGen:
+            MockGen.return_value.generate.return_value = fake_cases
+            result = invoke(
+                "generate", "test-agent",
+                "--from", str(doc_dir / "s3-guide.md"),
+                "--count", "1",
+                "--output", str(staged),
+                env=cli_env,
+            )
+        assert result.exit_code == 0
+        assert staged.exists()
+        case = json.loads(staged.read_text().strip())
+        assert case["input"]["task"] == "Which region is my-data-bucket in?"
+        assert case["expected"]["must_call"] == ["search_kb"]
+        assert case["tools"] == {}  # no mock responses — expected for doc mode
+
+    def test_document_mode_auto_import(self, cli_env, agent_meta, doc_dir):
+        from supereval.agent.generator import GeneratedAgentCase
+        fake_cases = [
+            GeneratedAgentCase(
+                task="List all buckets",
+                description="Bucket listing",
+                expected_answer=None,
+                must_call=["list_buckets"],
+                must_call_with=[],
+                max_steps=3,
+                difficulty="easy",
+                tags=[],
+                source_excerpt="",
+            )
+        ]
+        with patch("supereval.agent.cli.AgentBedrockGenerator") as MockGen:
+            MockGen.return_value.generate.return_value = fake_cases
+            result = invoke(
+                "generate", "test-agent",
+                "--from", str(doc_dir / "s3-guide.md"),
+                "--count", "1",
+                "--auto-import",
+                env=cli_env,
+            )
+        assert result.exit_code == 0
+        assert "Imported 1 case" in result.output
+
+    def test_document_mode_unknown_backend_fails(self, cli_env, agent_meta, doc_dir):
+        result = invoke(
+            "generate", "test-agent",
+            "--from", str(doc_dir / "s3-guide.md"),
+            "--backend", "unknown",
+            env=cli_env,
+        )
+        assert result.exit_code != 0
+        assert "Unknown backend" in result.output
+
+    def test_document_mode_missing_path_fails(self, cli_env, agent_meta):
+        result = invoke(
+            "generate", "test-agent",
+            "--from", "/nonexistent/docs/",
+            env=cli_env,
+        )
+        assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
 # history commands
 # ---------------------------------------------------------------------------
 

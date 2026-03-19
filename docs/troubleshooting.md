@@ -1,5 +1,7 @@
 # Troubleshooting
 
+For MCP server connection issues (Claude Code, Kiro), see [MCP server setup](./mcp.md#troubleshooting).
+
 ## Installation
 
 ### `promptfoo: command not found`

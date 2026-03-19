@@ -16,6 +16,7 @@ class DatasetType(str, Enum):
     qa = "qa"
     classification = "classification"
     instruction = "instruction"
+    rag = "rag"
 
 
 class Thresholds(BaseModel):
@@ -99,4 +100,6 @@ TYPE_TO_MODEL: dict[DatasetType, type[TestCase]] = {
     DatasetType.qa: QATestCase,
     DatasetType.classification: ClassificationTestCase,
     DatasetType.instruction: InstructionTestCase,
+    # DatasetType.rag is handled by supereval.rag.models.RagTestCase, not this map.
+    # It lives in a separate subpackage to keep LLM eval and RAG eval concerns apart.
 }

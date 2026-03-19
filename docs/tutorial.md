@@ -191,6 +191,12 @@ This writes `aws-support-qa_staged.jsonl`. Open it and review each case — the 
 }
 ```
 
+Or review each case interactively before importing — keep, edit, skip, or quit at any point:
+
+```bash
+supereval generate aws-support-qa --from docs/aws-kb/ --count 30 --interactive
+```
+
 Remove any cases that look wrong, then import:
 
 ```bash
@@ -209,6 +215,35 @@ On every PR the workflow runs `--compare-baseline` and fails if there's a regres
 
 ## Next steps
 
-- [Scoring explained](./scoring.md) — understand exactly what "pass" means for each dataset type
-- [Writing good test cases](./writing-test-cases.md) — guidance on case quality and coverage
+- [Scoring explained](./scoring.md) — understand exactly what "pass" means for each dataset type, including RAG eval metrics
+- [Writing good test cases](./writing-test-cases.md) — guidance on case quality and coverage for all dataset types
 - [Custom Promptfoo config](./custom-config.md) — add custom scoring logic or model parameters
+- [MCP server setup](./mcp.md) — connect supereval to Claude Code, Kiro, or any AI coding assistant so non-technical teammates can run evals via natural language
+- **Dataset versioning** — snapshot your dataset at any point with `supereval dataset version tag v1.0.0 aws-support-qa --description "initial baseline"`. Restore a previous version with `supereval dataset version restore v1.0.0 aws-support-qa`.
+
+### Evaluating a RAG pipeline?
+
+If you have a retrieval-augmented generation system, use the `rag` dataset type instead. The workflow is similar:
+
+```bash
+# 1. Create a RAG dataset
+supereval rag dataset create aws-rag-eval \
+  --description "RAG eval for AWS support chatbot"
+
+# 2. Add cases (each case includes the retrieved contexts)
+supereval rag dataset add-cases aws-rag-eval --from rag-cases.jsonl
+
+# 3. Run eval — model is called directly (no Promptfoo required)
+supereval rag run aws-rag-eval --model us.anthropic.claude-3-5-sonnet-20241022-v2:0
+
+# 4. Add a Bedrock judge for faithfulness + answer correctness scoring
+supereval rag run aws-rag-eval \
+  --model us.anthropic.claude-3-5-sonnet-20241022-v2:0 \
+  --judge-model us.anthropic.claude-3-5-sonnet-20241022-v2:0
+
+# 5. Baseline and regression detection work the same way
+supereval rag run aws-rag-eval --model <model> --update-baseline
+supereval rag run aws-rag-eval --model <model> --compare-baseline
+```
+
+See [Writing good test cases](./writing-test-cases.md#rag-datasets) for the `rag` case format and guidance on including distractor contexts.

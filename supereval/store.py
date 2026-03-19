@@ -179,6 +179,57 @@ def record_agent_run(result) -> None:
         conn.close()
 
 
+def record_rag_run(result) -> None:
+    """Persist a RagRunResult to the history store. Idempotent on run_id."""
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO runs VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            [
+                result.run_id,
+                result.dataset,
+                result.ran_at,
+                json.dumps([result.model_id]) if result.model_id else "[]",
+                result.total,
+                result.passed,
+                result.failed,
+                round(result.pass_rate, 6),
+                round(result.total_cost_usd, 6),
+                0,   # total_tokens — not tracked at this level
+                0,   # prompt_tokens
+                0,   # completion_tokens
+                round(result.avg_latency_ms, 2),
+                round(result.p50_latency_ms, 2),
+                round(result.p95_latency_ms, 2),
+                "rag",
+            ],
+        )
+        for case in result.cases:
+            conn.execute(
+                """
+                INSERT INTO case_results
+                    (run_id, dataset, vars_key, vars_json, passed, score, latency_ms, cost_usd)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    result.run_id,
+                    result.dataset,
+                    case.case_id,
+                    json.dumps(case.vars, ensure_ascii=False),
+                    case.passed,
+                    round(case.score.composite_score, 6),
+                    case.latency_ms,
+                    round(case.cost_usd, 6),
+                ],
+            )
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Read
 # ---------------------------------------------------------------------------

@@ -55,13 +55,27 @@ The dataset format (fields in `cases.jsonl` and `dataset.json`) is defined by th
 ```json
 {
   "run_id": "run_7d4e9f2a",
-  "pass_rate": 1.0,
+  "dataset": "aws-support-qa",
+  "ran_at": "2025-11-01T09:14:03+00:00",
+  "providers": ["anthropic:claude-opus-4-6"],
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "total_cost_usd": 0.0042,
+    "avg_latency_ms": 823.0,
+    "p50_latency_ms": 791.0,
+    "p95_latency_ms": 1241.0
+  },
   "cases": [
     {
       "key": "a3f9b2c1d4e5f6a7",
-      "vars": {"query": "..."},
+      "vars": {"query": "What is the maximum size of an SQS message?"},
       "passed": true,
-      "score": 1.0
+      "score": 1.0,
+      "latency_ms": 791,
+      "cost_usd": 0.0008
     }
   ]
 }

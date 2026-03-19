@@ -185,6 +185,17 @@ class TrajectoryScore:
     answer_reason: str = ""
     reasoning_reason: str = ""
     failure_reasons: list[str] = field(default_factory=list)
+    # Per-metric detail from judge (populated when judge is used)
+    correctness_raw: int | None = None
+    correctness_label: str = ""
+    completeness_raw: int | None = None
+    completeness_label: str = ""
+    helpfulness_raw: int | None = None
+    helpfulness_label: str = ""
+    faithfulness_raw: int | None = None
+    faithfulness_label: str = ""
+    coherence_raw: int | None = None
+    coherence_label: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +217,7 @@ class AgentCaseResult:
         return self.score.passed
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "case_id": self.case_id,
             "description": self.description,
             "vars": self.vars,
@@ -226,6 +237,33 @@ class AgentCaseResult:
             "latency_ms": self.latency_ms,
             "cost_usd": self.cost_usd,
         }
+        # Include per-metric judge detail when available
+        if self.score.correctness_label:
+            d["correctness"] = {
+                "raw": self.score.correctness_raw,
+                "label": self.score.correctness_label,
+            }
+        if self.score.completeness_label:
+            d["completeness"] = {
+                "raw": self.score.completeness_raw,
+                "label": self.score.completeness_label,
+            }
+        if self.score.helpfulness_label:
+            d["helpfulness"] = {
+                "raw": self.score.helpfulness_raw,
+                "label": self.score.helpfulness_label,
+            }
+        if self.score.faithfulness_label:
+            d["faithfulness"] = {
+                "raw": self.score.faithfulness_raw,
+                "label": self.score.faithfulness_label,
+            }
+        if self.score.coherence_label:
+            d["logical_coherence"] = {
+                "raw": self.score.coherence_raw,
+                "label": self.score.coherence_label,
+            }
+        return d
 
 
 @dataclass

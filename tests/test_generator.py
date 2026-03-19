@@ -13,6 +13,8 @@ from supereval.generator import (
     DEFAULT_MODEL,
     DEFAULT_REGION,
     GeneratedCase,
+    OpenAIGenerator,
+    OPENAI_DEFAULT_MODEL,
     _build_prompt,
     _chunk_document,
     _parse_response,
@@ -368,3 +370,103 @@ class TestAnthropicGenerator:
             cases = gen.generate(doc, 1, dataset_type="classification", labels=["networking"])
 
         assert cases[0].expected == {"label": "networking"}
+
+
+def _make_mock_openai_module(mock_client: MagicMock) -> MagicMock:
+    """Return a fake 'openai' module whose OpenAI() / AzureOpenAI() returns mock_client."""
+    mock_module = MagicMock()
+    mock_module.OpenAI.return_value = mock_client
+    mock_module.AzureOpenAI.return_value = mock_client
+    return mock_module
+
+
+class TestOpenAIGenerator:
+    def _make_api_response(self, cases_json: str) -> MagicMock:
+        message = MagicMock()
+        message.content = cases_json
+        choice = MagicMock()
+        choice.message = message
+        response = MagicMock()
+        response.choices = [choice]
+        return response
+
+    def _make_mock_client(self, cases_json: str) -> MagicMock:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._make_api_response(cases_json)
+        return mock_client
+
+    def test_generate_calls_openai_api(self):
+        doc = Document(content="S3 max size is 5 TB.", filename="s3.md", source="/docs/s3.md")
+        mock_client = self._make_mock_client(VALID_CASES_JSON)
+
+        with patch.dict("sys.modules", {"openai": _make_mock_openai_module(mock_client)}):
+            gen = OpenAIGenerator(model_id=OPENAI_DEFAULT_MODEL)
+            gen._client = None
+            cases = gen.generate(doc, count=2)
+
+        assert len(cases) == 2
+        mock_client.chat.completions.create.assert_called_once()
+        assert mock_client.chat.completions.create.call_args[1]["model"] == OPENAI_DEFAULT_MODEL
+
+    def test_generate_uses_custom_model(self):
+        doc = Document(content="content", filename="f.md", source="/f.md")
+        mock_client = self._make_mock_client(VALID_CASES_JSON)
+
+        with patch.dict("sys.modules", {"openai": _make_mock_openai_module(mock_client)}):
+            gen = OpenAIGenerator(model_id="gpt-4o-mini")
+            gen._client = None
+            gen.generate(doc, count=2)
+
+        assert mock_client.chat.completions.create.call_args[1]["model"] == "gpt-4o-mini"
+
+    def test_import_error_raises_clearly(self):
+        with patch.dict("sys.modules", {"openai": None}):
+            gen = OpenAIGenerator()
+            gen._client = None
+            with pytest.raises((ImportError, TypeError)):
+                _ = gen.client
+
+    def test_azure_uses_azure_openai_class(self):
+        doc = Document(content="content", filename="f.md", source="/f.md")
+        mock_client = self._make_mock_client(VALID_CASES_JSON)
+        mock_openai = _make_mock_openai_module(mock_client)
+
+        with patch.dict("sys.modules", {"openai": mock_openai}):
+            gen = OpenAIGenerator(
+                model_id="gpt-4o",
+                azure_endpoint="https://my-resource.openai.azure.com",
+                api_version="2024-02-01",
+            )
+            gen._client = None
+            gen.generate(doc, count=2)
+
+        mock_openai.AzureOpenAI.assert_called_once()
+        call_kwargs = mock_openai.AzureOpenAI.call_args[1]
+        assert "azure_endpoint" in call_kwargs
+        assert call_kwargs["api_version"] == "2024-02-01"
+
+    def test_non_azure_uses_openai_class(self):
+        doc = Document(content="content", filename="f.md", source="/f.md")
+        mock_client = self._make_mock_client(VALID_CASES_JSON)
+        mock_openai = _make_mock_openai_module(mock_client)
+
+        with patch.dict("sys.modules", {"openai": mock_openai}):
+            gen = OpenAIGenerator(model_id="gpt-4o")
+            gen._client = None
+            gen.generate(doc, count=2)
+
+        mock_openai.OpenAI.assert_called_once()
+        mock_openai.AzureOpenAI.assert_not_called()
+
+    def test_large_document_chunked(self):
+        large_content = "Lambda details. " * 5000
+        doc = Document(content=large_content, filename="large.md", source="/large.md")
+        mock_client = self._make_mock_client(VALID_CASES_JSON)
+
+        with patch.dict("sys.modules", {"openai": _make_mock_openai_module(mock_client)}):
+            gen = OpenAIGenerator()
+            gen._client = None
+            cases = gen.generate(doc, count=4)
+
+        assert mock_client.chat.completions.create.call_count == 2
+        assert len(cases) <= 4

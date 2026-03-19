@@ -12,9 +12,9 @@ Tracks what is currently supported, what is planned, and what is out of scope.
 | Local files (`.pdf`) | Supported | Requires `pip install 'supereval[pdf]'` |
 | Local directory (recursive) | Supported | All supported file types under a path |
 | Amazon S3 | Supported | `s3://bucket/prefix` — `S3Source` in `sources.py`; requires boto3 + s3:ListObjectsV2/GetObject |
-| URLs | Planned | HTTP fetch + text extraction |
-| Amazon Kendra | Planned | Pull documents from a Kendra index |
-| Bedrock Knowledge Base | Planned | Pull source documents from a KB |
+| URLs | Supported | HTTP/HTTPS fetch + HTML stripping; auto-detected from `--from` |
+| Amazon Kendra | Coming Soon | Pull documents from a Kendra index |
+| Bedrock Knowledge Base | Coming Soon | Pull source documents from a KB |
 
 ---
 
@@ -25,8 +25,9 @@ Tracks what is currently supported, what is planned, and what is out of scope.
 | `qa` | Supported | Supported | Query + ground truth |
 | `classification` | Supported | Supported | Label-aware generation; requires `--labels` set on dataset |
 | `instruction` | Supported | Supported | Rubric-based generation |
-| `rag` | Planned | Planned | Extends `qa` with expected source documents |
-| `multiturn` | Planned | Planned | Conversation datasets |
+| `rag` | Supported | Supported | Extends `qa` with retrieved_contexts; Faithfulness + Answer Correctness scoring via Bedrock judge; static contexts (Option A) |
+| `rag` (live retrieval) | Planned | — | Option B: contexts fetched live from your retriever at eval time; tests the full RAG pipeline end-to-end |
+| `multiturn` | Coming Soon | Coming Soon | Conversation datasets |
 | `agent` | Supported | Planned | Trajectory + tool-call evaluation; see Agent Eval section |
 
 ---
@@ -37,8 +38,8 @@ Tracks what is currently supported, what is planned, and what is out of scope.
 |---|---|---|
 | Amazon Bedrock | Supported | Default. Requires `boto3` + Bedrock model access |
 | Anthropic API | Supported | `--backend anthropic`; requires `pip install 'supereval[anthropic]'` + `ANTHROPIC_API_KEY` |
-| OpenAI | Planned | For customers evaluating GPT models as generators |
-| Azure OpenAI | Planned | |
+| OpenAI | Supported | `--backend openai`; requires `pip install 'supereval[openai]'` + `OPENAI_API_KEY` |
+| Azure OpenAI | Supported | `--backend azure-openai`; requires `pip install 'supereval[openai]'`; set `AZURE_OPENAI_ENDPOINT` or pass `--azure-endpoint` |
 
 ---
 
@@ -48,8 +49,8 @@ Tracks what is currently supported, what is planned, and what is out of scope.
 |---|---|---|
 | GitHub Actions | Supported | Template at `.github/workflows/eval.yml` |
 | AWS CodeBuild / CodePipeline | Supported | `codebuild/buildspec.yml`; set `SUPEREVAL_MODE=pr|main` |
-| GitLab CI | Planned | |
-| CircleCI | Planned | |
+| GitLab CI | Supported | Template at `gitlab/eval.yml` |
+| CircleCI | Supported | Template at `circleci/config.yml` |
 
 ---
 
@@ -61,7 +62,7 @@ Tracks what is currently supported, what is planned, and what is out of scope.
 | Per-run results JSON (`--output`) | Supported | Written locally; not persisted automatically |
 | DuckDB local store | Supported | `supereval history list/show/stats`; `SUPEREVAL_DB_PATH` to override location |
 | S3 results store | Planned | Team-shared history; needed for dashboards |
-| Langfuse integration | Planned | Post-deployment monitoring alongside offline evals |
+| Langfuse integration | Coming Soon | Post-deployment monitoring alongside offline evals; trace supereval runs to Langfuse for production comparison |
 
 ---
 
@@ -99,16 +100,16 @@ Tracks what is currently supported, what is planned, and what is out of scope.
 | `supereval agent history` subcommand | Supported | list / show / stats; reuses store.py |
 | Reference AgentRunner examples | Supported | `examples/`: custom ReAct/Bedrock, Bedrock Agents, LangChain |
 
-### Judge improvements (planned)
+### Judge improvements
 
 Informed by comparison with AWS Bedrock's built-in LLM-as-judge metric suite (12 metrics across quality, safety, and style dimensions).
 
-| Feature | Notes |
-|---|---|
-| Split `judge_reasoning` into Faithfulness + Logical Coherence | Faithfulness = did the agent hallucinate from tool results?; Logical Coherence = did each step follow from the previous? Currently conflated into one call |
-| Add Helpfulness / Relevance dimension to `judge_answer` | Especially valuable for instruction-type datasets where correctness alone is insufficient |
-| Adopt per-metric ordinal scoring scales | Use metric-appropriate scales (binary for safety checks, 3-point for correctness, 5-point for quality, 7-point for helpfulness) instead of a single continuous 0.0–1.0 float for all dimensions |
-| Make ground truth optional in answer judging | Currently `expected_answer` is always required; judge should degrade gracefully to rubric-only scoring when no ground truth is available |
+| Feature | Status | Notes |
+|---|---|---|
+| Split `judge_reasoning` into Faithfulness + Logical Coherence | Supported | Two focused Bedrock calls; Faithfulness = did agent hallucinate from tool results?; Logical Coherence = did each step follow from the previous? |
+| Adopt per-metric ordinal scoring scales | Supported | 3-point for Correctness, 5-point for Completeness / Faithfulness / Coherence; native labels ("partially correct", "most faithful") surfaced alongside normalized 0.0–1.0 float |
+| Make ground truth optional in answer judging | Supported | `expected_answer` is now optional; judge degrades gracefully to rubric-only scoring when omitted |
+| Add Helpfulness / Relevance dimension to `judge_answer` | Supported | 5-point scale; third Bedrock call alongside Correctness + Completeness; normalized score averaged into composite |
 
 ### Out of scope for v1 (prioritize later)
 
@@ -116,11 +117,11 @@ Informed by comparison with AWS Bedrock's built-in LLM-as-judge metric suite (12
 |---|---|
 | Multi-turn conversation state | Each test case is a single task invocation; stateful conversation datasets are v2 |
 | Parallel tool calls | Tool calls are sequential for now; parallel execution adds replay complexity |
-| Synthetic generation for agent cases | Writing realistic mock environments requires domain knowledge; needs separate design |
+| Synthetic generation for agent cases | **Supported** (`supereval agent generate --from docs/`) — LLM generates task scenarios from documentation; `tools={}` block left empty, fill via trace import |
 | Real framework adapters in the package | Reference impls live in `examples/` only; not installed with `supereval` |
 | Trajectory similarity scoring | Comparing step sequences across runs (edit distance, embedding similarity) |
 | Bedrock Agents native integration | Polling `GetAgentExecution`, parsing Bedrock Agents trace format |
-| Agent dataset generation from existing traces | Import real agent traces to bootstrap test cases |
+| Agent dataset generation from existing traces | **Supported** (`supereval agent generate --from traces.jsonl`) — imports real execution traces; infers tool mocks from step results |
 | AWS Step Functions / multi-agent orchestration | Evaluating pipelines of agents, not single agents |
 
 ---
@@ -130,6 +131,6 @@ Informed by comparison with AWS Bedrock's built-in LLM-as-judge metric suite (12
 | Feature | Status | Notes |
 |---|---|---|
 | `supereval providers` | Supported | Lists Bedrock model IDs, Anthropic API model IDs, and Promptfoo provider IDs |
-| Multi-dataset CI runs | Planned | Run all datasets in one pipeline step |
-| Dataset versioning (tags) | Planned | Semantic version tags beyond git history |
-| Interactive case review | Planned | `supereval generate --interactive` for approve/edit/skip flow |
+| Multi-dataset CI runs | Supported | `supereval run-all`; exits non-zero if any dataset fails |
+| Dataset versioning (tags) | Supported | `supereval dataset version tag/list/show/restore`; semantic version snapshots stored under `datasets/<name>/versions/` |
+| Interactive case review | Supported | `supereval generate --interactive` and `supereval agent generate --interactive`; keep/edit/skip/quit per case |

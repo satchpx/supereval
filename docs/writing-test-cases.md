@@ -135,6 +135,72 @@ If the instruction operates on a specific piece of text, put it in `document`. D
 
 ---
 
+## `rag` datasets
+
+RAG (Retrieval-Augmented Generation) cases test whether a model answers correctly when given retrieved context documents. The key difference from `qa` is the `retrieved_contexts` field — context chunks that were retrieved from a knowledge base and are provided to the model at eval time.
+
+### Case format
+
+```jsonl
+{
+  "description": "S3 bucket region lookup",
+  "input": {
+    "query": "What region is my-data-bucket in?",
+    "retrieved_contexts": [
+      "The bucket my-data-bucket was created in us-west-2 in January 2024.",
+      "S3 bucket names are globally unique but buckets exist in a specific region."
+    ]
+  },
+  "expected": {
+    "ground_truth": "us-west-2"
+  },
+  "tags": ["s3", "region"],
+  "difficulty": "easy"
+}
+```
+
+### What goes in `retrieved_contexts`
+
+`retrieved_contexts` should be verbatim text chunks exactly as your retriever would return them — not paraphrased, not summarised. The point is to test whether the model uses the context correctly, so the context must actually be representative of what it receives in production.
+
+**Include the right number of chunks:** 2–4 contexts is typical. Too few and you're not testing retrieval behaviour; too many and every case becomes trivially easy.
+
+**Include distractor contexts (~30% of cases):** Add a context chunk that's topically related but doesn't answer the question. This tests whether the model correctly identifies which context is relevant.
+
+```jsonl
+{
+  "description": "Lambda timeout — with distractor",
+  "input": {
+    "query": "What is the maximum Lambda execution timeout?",
+    "retrieved_contexts": [
+      "Lambda functions have a maximum execution timeout of 15 minutes.",
+      "Lambda supports multiple runtimes including Python, Node.js, and Java."
+    ]
+  },
+  "expected": { "ground_truth": "15 minutes" },
+  "difficulty": "medium"
+}
+```
+
+**Include cases with no relevant context:** Some cases should have contexts that don't answer the question. The model should say it doesn't know rather than hallucinate. Use `require_contains: false` in thresholds and check that the answer doesn't confidently state wrong information.
+
+### Ground truth
+
+Same rules as `qa` — be specific and canonical. The contains check verifies that the answer includes the exact ground truth string.
+
+### When to add `--judge-model`
+
+Without `--judge-model`, scoring is based only on the contains check. This is sufficient for catching completely wrong answers.
+
+Add `--judge-model` when you want to detect:
+
+- **Hallucination** — the model invents facts not present in the retrieved contexts (caught by Faithfulness scoring)
+- **Partial answers** — the model gives a technically correct but incomplete answer (caught by Answer Correctness scoring)
+
+A good starting point is to run without a judge for fast CI checks, and run with a judge model periodically (e.g., on push to main) for a deeper signal.
+
+---
+
 ## Agent eval test cases
 
 ### Mock environments
@@ -188,4 +254,4 @@ Be explicit about what the agent should and shouldn't do:
 
 **Review staged cases before importing.** The `source_excerpt` field in staged output shows exactly which sentence in the document the question came from. If the excerpt doesn't support the answer, delete the case.
 
-**Version your dataset with git.** `cases.jsonl` and `baseline.json` are committed to the repository. The git history is your audit trail for when cases were added or changed.
+**Version your dataset.** `cases.jsonl` and `baseline.json` are committed to the repository — git history gives you a full audit trail. For named, restorable snapshots use `supereval dataset version tag v1.0.0 <dataset>` before major changes and `supereval dataset version restore v1.0.0 <dataset>` to roll back. Use `supereval dataset version list <dataset>` to see all saved versions.

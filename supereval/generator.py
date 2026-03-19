@@ -1,7 +1,7 @@
 """
 Synthetic test case generation using Claude.
 
-Supported generators : Amazon Bedrock (default), Anthropic API
+Supported generators : Amazon Bedrock (default), Anthropic API, OpenAI / Azure OpenAI
 Supported types      : qa, classification, instruction
 """
 from __future__ import annotations
@@ -14,11 +14,14 @@ from dataclasses import dataclass, field
 from .sources import Document
 
 # Default Bedrock model. Cross-region inference profiles (e.g. us.anthropic.*) also work.
-DEFAULT_MODEL = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+DEFAULT_MODEL = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 DEFAULT_REGION = "us-east-1"
 
 # Default model when using the Anthropic API directly
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
+
+# Default model when using the OpenAI API
+OPENAI_DEFAULT_MODEL = "gpt-4o"
 
 # Max characters per chunk sent to the model (~10K tokens; keeps cost predictable)
 MAX_CHARS_PER_CHUNK = 40_000
@@ -141,6 +144,44 @@ _INSTRUCTION_PROMPT = textwrap.dedent("""
 """).strip()
 
 
+_RAG_GENERATION_PROMPT = textwrap.dedent("""
+    You are an expert at creating evaluation test cases for RAG (Retrieval-Augmented Generation) systems.
+
+    Given the document below, generate exactly {count} RAG test cases. Each case must include:
+    - A realistic question a user might ask
+    - The correct answer (ground_truth) — grounded in the document
+    - 2–4 retrieved_contexts: verbatim excerpts from the document that together contain
+      the information needed to answer the question
+    - Optionally 1 distractor context (a plausible but unhelpful excerpt) in ~30% of cases
+      to test faithfulness
+
+    Rules:
+    - retrieved_contexts must be verbatim excerpts from the document (max 300 characters each)
+    - ground_truth must be fully answerable from the retrieved_contexts
+    - Do not invent facts not present in the document
+    - Vary difficulty: mix direct lookup, inference, and multi-hop questions
+
+    Return ONLY a valid JSON array — no markdown, no explanation. Each element:
+    {{
+      "description": "one-line description of what this case tests",
+      "input": {{
+        "query": "the question",
+        "retrieved_contexts": ["verbatim excerpt 1", "verbatim excerpt 2"]
+      }},
+      "expected": {{"ground_truth": "the correct answer"}},
+      "tags": ["tag1", "tag2"],
+      "difficulty": "easy|medium|hard",
+      "case_type": "direct|inference|multi_hop",
+      "source_excerpt": "verbatim excerpt from the document (max 200 chars)"
+    }}
+
+    Document ({filename}):
+    ---
+    {document}
+    ---
+""").strip()
+
+
 def _build_prompt(
     dataset_type: str,
     text: str,
@@ -157,6 +198,8 @@ def _build_prompt(
         )
     if dataset_type == "instruction":
         return _INSTRUCTION_PROMPT.format(count=count, filename=filename, document=text)
+    if dataset_type == "rag":
+        return _RAG_GENERATION_PROMPT.format(count=count, filename=filename, document=text)
     # qa (default)
     mix_lines = "\n".join(
         f"  - {k}: ~{int(v * count)} cases ({int(v * 100)}%)"
@@ -352,6 +395,96 @@ class AnthropicGenerator:
             messages=[{"role": "user", "content": prompt}],
         )
         return _parse_response(message.content[0].text)
+
+
+class OpenAIGenerator:
+    """
+    Generates test cases using the OpenAI API or Azure OpenAI.
+
+    For OpenAI: reads OPENAI_API_KEY from the environment automatically.
+    For Azure:  set AZURE_OPENAI_ENDPOINT and OPENAI_API_VERSION env vars,
+                or pass azure_endpoint / api_version explicitly.
+
+    Install: pip install 'supereval[openai]'
+    """
+
+    def __init__(
+        self,
+        model_id: str = OPENAI_DEFAULT_MODEL,
+        api_key: str | None = None,
+        azure_endpoint: str | None = None,
+        api_version: str | None = None,
+    ):
+        self.model_id = model_id
+        self.api_key = api_key
+        self.azure_endpoint = azure_endpoint
+        self.api_version = api_version
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            try:
+                import openai
+                if self.azure_endpoint:
+                    self._client = openai.AzureOpenAI(
+                        api_key=self.api_key,
+                        azure_endpoint=self.azure_endpoint,
+                        api_version=self.api_version or "2024-02-01",
+                    )
+                else:
+                    self._client = openai.OpenAI(api_key=self.api_key)
+            except ImportError:
+                raise ImportError(
+                    "openai package is required. "
+                    "Install it with: pip install 'supereval[openai]'"
+                )
+        return self._client
+
+    def generate(
+        self,
+        document: Document,
+        count: int,
+        dataset_type: str = "qa",
+        labels: list[str] | None = None,
+    ) -> list[GeneratedCase]:
+        chunks = _chunk_document(document.content)
+
+        if len(chunks) == 1:
+            return self._generate_from_chunk(
+                chunks[0], document.filename, count, dataset_type, labels
+            )
+
+        cases: list[GeneratedCase] = []
+        per_chunk = max(1, math.ceil(count / len(chunks)))
+        for chunk in chunks:
+            remaining = count - len(cases)
+            if remaining <= 0:
+                break
+            chunk_count = min(per_chunk, remaining)
+            cases.extend(
+                self._generate_from_chunk(
+                    chunk, document.filename, chunk_count, dataset_type, labels
+                )
+            )
+
+        return cases[:count]
+
+    def _generate_from_chunk(
+        self,
+        text: str,
+        filename: str,
+        count: int,
+        dataset_type: str = "qa",
+        labels: list[str] | None = None,
+    ) -> list[GeneratedCase]:
+        prompt = _build_prompt(dataset_type, text, filename, count, labels)
+        response = self.client.chat.completions.create(
+            model=self.model_id,
+            max_tokens=8192,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return _parse_response(response.choices[0].message.content)
 
 
 # ------------------------------------------------------------------

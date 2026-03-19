@@ -27,6 +27,13 @@ from .baseline import (
 )
 from .models import AgentDatasetMeta, AgentTestCase, ToolSpec
 from .runner import load_runner, run_agent_eval
+from .generator import (
+    AgentAnthropicGenerator,
+    AgentBedrockGenerator,
+    AgentOpenAIGenerator,
+    GeneratedAgentCase,
+)
+from .trace_importer import parse_traces, trace_to_case
 from .storage import (
     agent_dataset_path,
     agent_datasets_dir,
@@ -234,6 +241,285 @@ def agent_dataset_validate(
     except ValueError as e:
         rprint(f"[red]{e}[/red]")
         raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# generate command (from traces)
+# ---------------------------------------------------------------------------
+
+def _agent_interactive_review(cases: list[AgentTestCase]) -> list[AgentTestCase]:
+    """Walk through generated agent cases one-by-one for review.
+
+    Actions: [k]eep / [e]dit (opens $EDITOR as JSON) / [s]kip / [q]uit
+    Returns the list of approved AgentTestCase objects.
+    """
+    import click
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+
+    approved: list[AgentTestCase] = []
+    total = len(cases)
+
+    for i, case in enumerate(cases, 1):
+        rprint(
+            f"\n[bold]Case {i}/{total}[/bold]"
+            + (f"  [dim]{case.difficulty}[/dim]" if case.difficulty else "")
+        )
+        case_dict = json.loads(case.model_dump_json())
+        rprint(Panel(
+            Syntax(json.dumps(case_dict, indent=2), "json", theme="ansi_dark"),
+            title=f"[cyan]{case.description or case.input.task[:60]}[/cyan]",
+            expand=False,
+        ))
+
+        while True:
+            raw = typer.prompt("[k]eep  [e]dit  [s]kip  [q]uit", default="k").strip().lower()
+            if raw in ("k", "keep", ""):
+                approved.append(case)
+                break
+            elif raw in ("e", "edit"):
+                edited_text = click.edit(
+                    json.dumps(case_dict, indent=2),
+                    extension=".json",
+                )
+                if edited_text is None:
+                    rprint("[yellow]No changes — keeping original.[/yellow]")
+                    approved.append(case)
+                else:
+                    try:
+                        approved.append(AgentTestCase.model_validate_json(edited_text))
+                        rprint("[green]Updated.[/green]")
+                    except Exception as exc:
+                        rprint(f"[red]Validation error: {exc} — keeping original.[/red]")
+                        approved.append(case)
+                break
+            elif raw in ("s", "skip"):
+                rprint("[yellow]Skipped.[/yellow]")
+                break
+            elif raw in ("q", "quit"):
+                rprint(
+                    f"[yellow]Quit at case {i}/{total}. "
+                    f"Keeping {len(approved)} approved so far.[/yellow]"
+                )
+                return approved
+            else:
+                rprint("[red]Enter k, e, s, or q.[/red]")
+
+    return approved
+
+
+@agent_app.command("generate")
+def agent_generate(
+    dataset: str = typer.Argument(..., help="Agent dataset name to generate cases for"),
+    from_path: str = typer.Option(
+        ..., "--from",
+        help="Source to generate from: a JSONL traces file, a local file/directory, "
+             "or an s3://bucket/prefix URI.",
+    ),
+    count: int = typer.Option(
+        20, "--count", "-n",
+        help="Number of cases to generate (document mode only; ignored for traces).",
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Staging file path (default: <dataset>_staged.jsonl).",
+    ),
+    backend: str = typer.Option(
+        "bedrock", "--backend",
+        help="Generator backend for document mode: bedrock (default), anthropic, "
+             "openai, or azure-openai. Ignored when --from is a .jsonl traces file.",
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model",
+        help="Model ID for the selected backend (defaults per backend).",
+    ),
+    region: str = typer.Option(
+        "us-east-1", "--region",
+        help="AWS region (Bedrock only).",
+    ),
+    azure_endpoint: Optional[str] = typer.Option(
+        None, "--azure-endpoint",
+        help="Azure OpenAI endpoint URL (azure-openai backend only). "
+             "Can also be set via AZURE_OPENAI_ENDPOINT env var.",
+    ),
+    auto_import: bool = typer.Option(
+        False, "--auto-import",
+        help="Import generated cases directly without staging.",
+    ),
+    interactive: bool = typer.Option(
+        False, "--interactive",
+        help="Review each case interactively before staging or importing. "
+             "[k]eep, [e]dit (opens $EDITOR), [s]kip, or [q]uit.",
+    ),
+):
+    """
+    Generate agent test cases — from execution traces or from documents.
+
+    \b
+    Mode 1 — From traces (.jsonl file):
+      supereval agent generate my-dataset --from production_traces.jsonl
+
+    \b
+    Mode 2 — From documents (LLM generates task scenarios using the dataset's tool catalog):
+      supereval agent generate my-dataset --from docs/ --count 20
+      supereval agent generate my-dataset --from docs/ --backend anthropic --count 10
+      supereval agent generate my-dataset --from s3://bucket/docs/ --count 20
+
+    \b
+    In document mode, the dataset's tool catalog drives what tools the LLM includes
+    in must_call. The tools block (mock responses) is left empty — add mock responses
+    from traces or manually before running an eval.
+
+    \b
+    Both modes support --auto-import (skip staging) and --interactive (review each case).
+    """
+    import math as _math
+    meta = load_agent_dataset_meta(dataset)
+
+    from_path_obj = Path(from_path)
+
+    # -----------------------------------------------------------------------
+    # Mode detection: .jsonl file → traces; anything else → document generation
+    # -----------------------------------------------------------------------
+    if from_path_obj.suffix.lower() == ".jsonl" and not from_path.startswith("s3://"):
+        # ---- Trace import mode ----
+        if not from_path_obj.exists():
+            rprint(f"[red]File not found: {from_path}[/red]")
+            raise typer.Exit(1)
+
+        rprint(f"\n[bold]Parsing traces from:[/bold] {from_path}")
+        try:
+            traces = parse_traces(from_path_obj)
+        except ValueError as exc:
+            rprint(f"[red]{exc}[/red]")
+            raise typer.Exit(1)
+
+        if not traces:
+            rprint("[yellow]No traces found in file.[/yellow]")
+            raise typer.Exit(0)
+
+        rprint(f"  Parsed {len(traces)} trace(s)")
+        cases: list[AgentTestCase] = [trace_to_case(t) for t in traces]
+        rprint(f"\n[bold]Generated {len(cases)} case(s) from traces[/bold]")
+
+    else:
+        # ---- Document generation mode ----
+        from ..sources import LocalFileSource, S3Source, URLSource
+
+        rprint(f"\n[bold]Loading documents from:[/bold] {from_path}")
+        try:
+            if from_path.startswith("s3://"):
+                source = S3Source(from_path, region=region)
+            elif from_path.startswith(("http://", "https://")):
+                source = URLSource(from_path)
+            else:
+                local = Path(from_path)
+                if not local.exists():
+                    rprint(f"[red]Path not found: {from_path}[/red]")
+                    raise typer.Exit(1)
+                source = LocalFileSource(local)
+            documents = source.load()
+        except (FileNotFoundError, ValueError, ImportError) as exc:
+            rprint(f"[red]{exc}[/red]")
+            raise typer.Exit(1)
+
+        rprint(f"  Loaded {len(documents)} document(s): "
+               f"{', '.join(d.filename for d in documents)}")
+
+        if meta.tools:
+            rprint(f"  Tool catalog: {', '.join(t.name for t in meta.tools)}")
+        else:
+            rprint(
+                "[yellow]  Warning: no tools defined on this dataset. "
+                "Add tools with `supereval agent dataset create --tool-specs tools.json` "
+                "or the generated tasks may not reference specific tools.[/yellow]"
+            )
+
+        # Resolve backend and model
+        from ..generator import DEFAULT_MODEL, ANTHROPIC_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL
+        _model_defaults = {
+            "bedrock": DEFAULT_MODEL,
+            "anthropic": ANTHROPIC_DEFAULT_MODEL,
+            "openai": OPENAI_DEFAULT_MODEL,
+            "azure-openai": OPENAI_DEFAULT_MODEL,
+        }
+        if backend not in _model_defaults:
+            rprint(
+                f"[red]Unknown backend '{backend}'. "
+                "Choose bedrock, anthropic, openai, or azure-openai.[/red]"
+            )
+            raise typer.Exit(1)
+
+        resolved_model = model or _model_defaults[backend]
+        rprint(f"\n[bold]Generating {count} case(s)[/bold] via {backend} ({resolved_model})")
+
+        if backend == "bedrock":
+            generator = AgentBedrockGenerator(model_id=resolved_model, region=region)
+        elif backend == "anthropic":
+            generator = AgentAnthropicGenerator(model_id=resolved_model)
+        elif backend == "azure-openai":
+            import os
+            endpoint = azure_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
+            if not endpoint:
+                rprint(
+                    "[red]Azure OpenAI requires an endpoint. "
+                    "Pass --azure-endpoint or set AZURE_OPENAI_ENDPOINT.[/red]"
+                )
+                raise typer.Exit(1)
+            generator = AgentOpenAIGenerator(model_id=resolved_model, azure_endpoint=endpoint)
+        else:
+            generator = AgentOpenAIGenerator(model_id=resolved_model)
+
+        generated: list[GeneratedAgentCase] = []
+        per_doc = max(1, _math.ceil(count / len(documents)))
+        for doc in documents:
+            doc_count = min(per_doc, count - len(generated))
+            if doc_count <= 0:
+                break
+            rprint(f"  Generating {doc_count} case(s) from [cyan]{doc.filename}[/cyan]...")
+            try:
+                batch = generator.generate(doc, doc_count, tools=meta.tools)
+                generated.extend(batch)
+                rprint(f"    [green]Got {len(batch)} case(s)[/green]")
+            except Exception as exc:
+                rprint(f"    [red]Failed: {exc}[/red]")
+                raise typer.Exit(1)
+
+        generated = generated[:count]
+        rprint(f"\n[bold]Generated {len(generated)} case(s) total[/bold]")
+        cases = [g.to_agent_test_case() for g in generated]
+
+    # -----------------------------------------------------------------------
+    # Interactive review (shared between both modes)
+    # -----------------------------------------------------------------------
+    if interactive:
+        rprint(
+            f"\n[bold]Interactive review[/bold] — {len(cases)} case(s). "
+            "Edit opens $EDITOR (or nano/vi)."
+        )
+        cases = _agent_interactive_review(cases)
+        rprint(f"[bold]Review complete:[/bold] {len(cases)} case(s) approved")
+        if not cases:
+            rprint("[yellow]No cases approved — nothing to import or stage.[/yellow]")
+            raise typer.Exit(0)
+
+    # -----------------------------------------------------------------------
+    # Stage or import
+    # -----------------------------------------------------------------------
+    if auto_import:
+        append_agent_cases(dataset, cases)
+        rprint(f"[green]Imported {len(cases)} case(s) into '{dataset}'[/green]")
+    else:
+        staging_path = output or Path(f"{dataset}_staged.jsonl")
+        staging_path.write_text("\n".join(c.model_dump_json() for c in cases) + "\n")
+        rprint(f"\n[green]Staged to:[/green] {staging_path}")
+        rprint("\nNext steps:")
+        rprint(f"  1. Review [cyan]{staging_path}[/cyan]")
+        rprint(f"  2. Add mock tool responses to each case's 'tools' block")
+        rprint(
+            f"  3. Import: [bold]supereval agent dataset add-cases "
+            f"{dataset} --from {staging_path}[/bold]"
+        )
 
 
 # ---------------------------------------------------------------------------
