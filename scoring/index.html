@@ -1,0 +1,1982 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="LLM and Agent evaluation dataset registry and tooling">
+      
+      
+      
+      
+        <link rel="prev" href="../tutorial/">
+      
+      
+        <link rel="next" href="../writing-test-cases/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>How Scoring Works - supereval</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#how-scoring-works" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="supereval" class="md-header__button md-logo" aria-label="supereval" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            supereval
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              How Scoring Works
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/satchpx/supereval" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    supereval
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../tutorial/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../troubleshooting/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="supereval" class="md-nav__button md-logo" aria-label="supereval" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    supereval
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/satchpx/supereval" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    supereval
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Scoring Works
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Scoring Works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#llm-eval-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM eval scoring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LLM eval scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qa-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qa datasets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#classification-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        classification datasets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#instruction-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        instruction datasets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#passfail-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pass/fail semantics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pass/fail semantics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#multiple-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thresholds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thresholds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-eval-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent eval scoring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent eval scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#four-dimensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Four dimensions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#answer-scoring-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer scoring methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Answer scoring methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#llm-judge-sub-metrics-for-answer-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM judge sub-metrics for answer scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm-judge-sub-metrics-for-reasoning-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM judge sub-metrics for reasoning scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#efficiency-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Efficiency scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composite-score" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composite score
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-thresholds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent thresholds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rag-eval-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RAG eval scoring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RAG eval scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#three-signals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three signals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scoring-without-judge-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scoring without --judge-model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scoring-with-judge-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scoring with --judge-model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scoring with --judge-model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#faithfulness-5-point-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Faithfulness (5-point scale)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#answer-correctness-3-point-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer Correctness (3-point scale)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composite-score_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composite score
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#passfail-semantics_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pass/fail semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rag-thresholds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RAG thresholds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../writing-test-cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing Good Test Cases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Promptfoo Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runner Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../upgrading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#llm-eval-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM eval scoring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LLM eval scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qa-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qa datasets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#classification-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        classification datasets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#instruction-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        instruction datasets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#passfail-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pass/fail semantics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pass/fail semantics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#multiple-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thresholds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thresholds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-eval-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent eval scoring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent eval scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#four-dimensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Four dimensions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#answer-scoring-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer scoring methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Answer scoring methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#llm-judge-sub-metrics-for-answer-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM judge sub-metrics for answer scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm-judge-sub-metrics-for-reasoning-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM judge sub-metrics for reasoning scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#efficiency-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Efficiency scoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composite-score" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composite score
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-thresholds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent thresholds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rag-eval-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RAG eval scoring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RAG eval scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#three-signals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three signals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scoring-without-judge-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scoring without --judge-model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scoring-with-judge-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scoring with --judge-model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scoring with --judge-model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#faithfulness-5-point-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Faithfulness (5-point scale)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#answer-correctness-3-point-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer Correctness (3-point scale)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composite-score_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composite score
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#passfail-semantics_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pass/fail semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rag-thresholds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RAG thresholds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/satchpx/supereval/edit/main/docs/scoring.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="how-scoring-works">How Scoring Works<a class="headerlink" href="#how-scoring-works" title="Permanent link">&para;</a></h1>
+<h2 id="llm-eval-scoring">LLM eval scoring<a class="headerlink" href="#llm-eval-scoring" title="Permanent link">&para;</a></h2>
+<p>supereval builds a Promptfoo config from your dataset and runs <code>promptfoo eval</code>. The asserts on each test case are determined by the dataset type.</p>
+<h3 id="qa-datasets"><code>qa</code> datasets<a class="headerlink" href="#qa-datasets" title="Permanent link">&para;</a></h3>
+<p>Each case gets two asserts:</p>
+<table>
+<thead>
+<tr>
+<th>Assert</th>
+<th>Type</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Contains</td>
+<td><code>icontains</code></td>
+<td>Response contains the <code>ground_truth</code> text (case-insensitive)</td>
+</tr>
+<tr>
+<td>LLM judge</td>
+<td><code>llm-rubric</code></td>
+<td>An LLM evaluator confirms the response correctly addresses the ground truth</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Both must pass for the case to pass.</strong> This catches responses that happen to mention the right term but get the meaning wrong (fails the judge), and responses where the LLM judge is lenient but the exact answer is missing (fails the contains check).</p>
+<p>Example: <code>ground_truth</code> = <code>"256 KB"</code>. A response of <code>"SQS messages are limited to 256 kilobytes"</code> passes the judge but fails the contains check. A response of <code>"The limit is 256 KB, but this was recently increased"</code> passes the contains check but may fail the judge.</p>
+<p>The LLM judge used by Promptfoo is configured separately (see <a href="../custom-config/">Custom Promptfoo config</a>). By default Promptfoo uses its own hosted grading model.</p>
+<h3 id="classification-datasets"><code>classification</code> datasets<a class="headerlink" href="#classification-datasets" title="Permanent link">&para;</a></h3>
+<p>Each case gets one assert:</p>
+<table>
+<thead>
+<tr>
+<th>Assert</th>
+<th>Type</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Contains</td>
+<td><code>icontains</code></td>
+<td>Response contains the expected <code>label</code> (case-insensitive)</td>
+</tr>
+</tbody>
+</table>
+<p>The default prompt instructs the model to respond with only the category name, so a contains check is the right signal. If your prompt produces verbose output, add a custom assert — see <a href="../custom-config/">Custom Promptfoo config</a>.</p>
+<h3 id="instruction-datasets"><code>instruction</code> datasets<a class="headerlink" href="#instruction-datasets" title="Permanent link">&para;</a></h3>
+<p>Each case gets one assert:</p>
+<table>
+<thead>
+<tr>
+<th>Assert</th>
+<th>Type</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LLM judge</td>
+<td><code>llm-rubric</code></td>
+<td>An LLM evaluator scores the response against the <code>rubric</code> string</td>
+</tr>
+</tbody>
+</table>
+<p>The rubric is passed verbatim to the judge. Write rubrics as clear pass/fail criteria:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>&quot;Must contain exactly 3 bullet points. Each bullet must address one of: root cause, impact, resolution.&quot;
+</code></pre></div>
+<p>Vague rubrics produce unreliable scores. See <a href="../writing-test-cases/">Writing good test cases</a> for rubric guidance.</p>
+<hr />
+<h2 id="passfail-semantics">Pass/fail semantics<a class="headerlink" href="#passfail-semantics" title="Permanent link">&para;</a></h2>
+<p>A case <strong>passes</strong> if all asserts pass. Promptfoo grades each assert as pass/fail; a case's <strong>score</strong> is the fraction of asserts that pass (0.0–1.0).</p>
+<p>The case-level <code>passed</code> field in results is <code>true</code> only when score = 1.0.</p>
+<h3 id="multiple-models">Multiple models<a class="headerlink" href="#multiple-models" title="Permanent link">&para;</a></h3>
+<p>When you run with <code>--model A --model B</code>, each case is run against both models. A case passes only if <strong>all</strong> models pass it. The score for a case is the minimum score across providers. This ensures a regression on any model is surfaced.</p>
+<hr />
+<h2 id="thresholds">Thresholds<a class="headerlink" href="#thresholds" title="Permanent link">&para;</a></h2>
+<p>Thresholds are set per-dataset in <code>dataset.json</code> and evaluated by <code>--compare-baseline</code>. They do not affect the per-case pass/fail — they affect whether the overall run fails CI.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;thresholds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">&quot;pass_rate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.90</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">&quot;fail_on_regression&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">&quot;max_score_drop&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">&quot;max_cost_usd&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.00</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">&quot;max_p95_latency_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3000</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">}</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pass_rate</code></td>
+<td><code>1.0</code></td>
+<td>Run fails if fewer than this fraction of cases pass</td>
+</tr>
+<tr>
+<td><code>fail_on_regression</code></td>
+<td><code>true</code></td>
+<td>Run fails if any previously-passing case now fails</td>
+</tr>
+<tr>
+<td><code>max_score_drop</code></td>
+<td><code>null</code></td>
+<td>Run fails if pass rate dropped more than this vs baseline</td>
+</tr>
+<tr>
+<td><code>max_cost_usd</code></td>
+<td><code>null</code></td>
+<td>Run fails if total cost exceeds this amount</td>
+</tr>
+<tr>
+<td><code>max_p95_latency_ms</code></td>
+<td><code>null</code></td>
+<td>Run fails if p95 latency exceeds this threshold</td>
+</tr>
+</tbody>
+</table>
+<p><code>fail_on_regression: true</code> is the most important setting. With <code>pass_rate: 0.9</code>, you might not notice a single case regressing if everything else stays green. With <code>fail_on_regression: true</code>, any individual regression breaks the build regardless of the aggregate pass rate.</p>
+<hr />
+<h2 id="agent-eval-scoring">Agent eval scoring<a class="headerlink" href="#agent-eval-scoring" title="Permanent link">&para;</a></h2>
+<p>Agent evals are scored independently of Promptfoo — supereval's own scorer runs after each trajectory completes.</p>
+<h3 id="four-dimensions">Four dimensions<a class="headerlink" href="#four-dimensions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Score range</th>
+<th>How it's computed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>answer_score</code></td>
+<td>0.0–1.0</td>
+<td>Compares <code>trajectory.final_answer</code> against <code>expected.answer</code></td>
+</tr>
+<tr>
+<td><code>tool_score</code></td>
+<td>0.0–1.0</td>
+<td>Fraction of tool checks satisfied</td>
+</tr>
+<tr>
+<td><code>efficiency_score</code></td>
+<td>0.0–1.0</td>
+<td>Normalized step count vs <code>max_steps</code></td>
+</tr>
+<tr>
+<td><code>reasoning_score</code></td>
+<td>0.0–1.0</td>
+<td>LLM judge on the thought chain (only when <code>--judge-model</code> is set)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="answer-scoring-methods">Answer scoring methods<a class="headerlink" href="#answer-scoring-methods" title="Permanent link">&para;</a></h3>
+<p>Set <code>answer_match</code> on the test case <code>expected</code> block:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>contains</code> (default)</td>
+<td><code>final_answer</code> contains the expected string (case-insensitive)</td>
+</tr>
+<tr>
+<td><code>exact</code></td>
+<td><code>final_answer</code> equals the expected string exactly (case-insensitive, stripped)</td>
+</tr>
+<tr>
+<td><code>regex</code></td>
+<td><code>final_answer</code> matches the expected regex pattern</td>
+</tr>
+<tr>
+<td><code>llm_judge</code></td>
+<td>Bedrock judge evaluates three sub-metrics; requires <code>--judge-model</code></td>
+</tr>
+</tbody>
+</table>
+<p>When <code>answer_match: llm_judge</code> is set but no <code>--judge-model</code> is provided, scoring falls back to <code>contains</code> and the result notes the fallback.</p>
+<h4 id="llm-judge-sub-metrics-for-answer-scoring">LLM judge sub-metrics for answer scoring<a class="headerlink" href="#llm-judge-sub-metrics-for-answer-scoring" title="Permanent link">&para;</a></h4>
+<p>When <code>llm_judge</code> is used, three separate Bedrock calls are made and their normalized scores are averaged to produce <code>answer_score</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Sub-metric</th>
+<th>Scale</th>
+<th>What it measures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Correctness</strong></td>
+<td>3-point: <code>incorrect</code> / <code>partially correct</code> / <code>correct</code></td>
+<td>Is the final answer factually correct?</td>
+</tr>
+<tr>
+<td><strong>Completeness</strong></td>
+<td>5-point Likert: <code>not at all</code> → <code>yes</code></td>
+<td>Does the answer address every part of the task?</td>
+</tr>
+<tr>
+<td><strong>Helpfulness</strong></td>
+<td>5-point: <code>not helpful</code> → <code>very helpful</code></td>
+<td>Is the response useful and actionable for the user's need?</td>
+</tr>
+</tbody>
+</table>
+<p>The raw label (e.g. <code>"partially correct"</code>) and raw integer score are surfaced in the result alongside the normalized 0.0–1.0 float. This is especially useful for <code>instruction</code> datasets where correctness alone isn't the right signal.</p>
+<h4 id="llm-judge-sub-metrics-for-reasoning-scoring">LLM judge sub-metrics for reasoning scoring<a class="headerlink" href="#llm-judge-sub-metrics-for-reasoning-scoring" title="Permanent link">&para;</a></h4>
+<p>When <code>min_reasoning_score</code> is configured, two Bedrock calls produce <code>reasoning_score</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Sub-metric</th>
+<th>Scale</th>
+<th>What it measures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Faithfulness</strong></td>
+<td>5-point: <code>none</code> / <code>some</code> / <code>approximately half</code> / <code>most</code> / <code>all</code></td>
+<td>Did the agent hallucinate facts not present in tool results?</td>
+</tr>
+<tr>
+<td><strong>Logical Coherence</strong></td>
+<td>5-point Likert: <code>not at all</code> → <code>yes</code></td>
+<td>Does each reasoning step follow logically from the previous?</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tool-scoring">Tool scoring<a class="headerlink" href="#tool-scoring" title="Permanent link">&para;</a></h3>
+<p>Tool score is <code>checks_passed / total_checks</code>. Each test case can define:</p>
+<ul>
+<li><code>must_call: ["tool_a", "tool_b"]</code> — penalises 1/total for each missing call</li>
+<li><code>must_not_call: ["dangerous_tool"]</code> — penalises 1/total for each forbidden call</li>
+<li><code>must_call_with: [{"tool": "search", "args": {"query": "s3"}}]</code> — penalises 1/total for each call that doesn't match the expected arguments</li>
+</ul>
+<p>If no tool checks are defined, <code>tool_score</code> defaults to 1.0.</p>
+<h3 id="efficiency-scoring">Efficiency scoring<a class="headerlink" href="#efficiency-scoring" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>efficiency = max(0, 1 - (step_count - 1) / (max_steps - 1))
+</code></pre></div>
+<p>A single-step trajectory scores 1.0. A trajectory that uses all <code>max_steps</code> scores 0.0. If <code>max_steps</code> is not set, efficiency defaults to 1.0 (informational only).</p>
+<h3 id="composite-score">Composite score<a class="headerlink" href="#composite-score" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>composite = weighted_average(answer, tool, efficiency, reasoning)
+</code></pre></div>
+<p>Default weights: answer 40%, tool 40%, efficiency 5%, reasoning 15%. When no judge is configured, the reasoning weight is redistributed to the other dimensions so a perfect run still reaches 1.0.</p>
+<h3 id="agent-thresholds">Agent thresholds<a class="headerlink" href="#agent-thresholds" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;thresholds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">&quot;min_answer_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.8</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">&quot;min_tool_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">&quot;min_reasoning_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">&quot;pass_rate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">&quot;fail_on_regression&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="p">}</span>
+</code></pre></div>
+<p>A case fails if any dimension score falls below its threshold. <code>min_reasoning_score: null</code> means reasoning is scored but never causes a failure — useful while you're calibrating the judge.</p>
+<hr />
+<h2 id="rag-eval-scoring">RAG eval scoring<a class="headerlink" href="#rag-eval-scoring" title="Permanent link">&para;</a></h2>
+<p>RAG evals run independently of Promptfoo — supereval calls the model directly, then scores each case using up to three signals.</p>
+<h3 id="three-signals">Three signals<a class="headerlink" href="#three-signals" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>When available</th>
+<th>What it measures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Contains check</strong></td>
+<td>Always</td>
+<td>Does the model's answer contain the <code>ground_truth</code> string? (case-insensitive)</td>
+</tr>
+<tr>
+<td><strong>Answer Correctness</strong></td>
+<td>With <code>--judge-model</code></td>
+<td>Is the answer factually correct relative to the ground truth?</td>
+</tr>
+<tr>
+<td><strong>Faithfulness</strong></td>
+<td>With <code>--judge-model</code></td>
+<td>Is the answer grounded in the retrieved contexts, or does it hallucinate?</td>
+</tr>
+</tbody>
+</table>
+<p>The contains check runs on every case regardless of whether a judge model is configured. It's a cheap, deterministic signal that catches completely wrong answers without any LLM call.</p>
+<h3 id="scoring-without-judge-model">Scoring without <code>--judge-model</code><a class="headerlink" href="#scoring-without-judge-model" title="Permanent link">&para;</a></h3>
+<p>When no judge is configured:</p>
+<ul>
+<li><code>contains_score</code> — 1.0 if answer contains ground truth, 0.0 otherwise</li>
+<li><code>answer_correctness_score</code> — falls back to <code>contains_score</code></li>
+<li><code>faithfulness_score</code> — defaults to 1.0 (unverified)</li>
+<li><code>composite_score</code> — equals <code>answer_correctness_score</code></li>
+</ul>
+<h3 id="scoring-with-judge-model">Scoring with <code>--judge-model</code><a class="headerlink" href="#scoring-with-judge-model" title="Permanent link">&para;</a></h3>
+<p>When a judge model is configured, two separate Bedrock calls are made per case:</p>
+<h4 id="faithfulness-5-point-scale">Faithfulness (5-point scale)<a class="headerlink" href="#faithfulness-5-point-scale" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Label</th>
+<th>Normalized score</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>none</code></td>
+<td>0.0</td>
+<td>Answer is entirely hallucinated</td>
+</tr>
+<tr>
+<td><code>some</code></td>
+<td>0.25</td>
+<td>Most claims are unsupported</td>
+</tr>
+<tr>
+<td><code>approximately half</code></td>
+<td>0.5</td>
+<td>Mixed — some grounded, some not</td>
+</tr>
+<tr>
+<td><code>most</code></td>
+<td>0.75</td>
+<td>Mostly grounded with minor unsupported details</td>
+</tr>
+<tr>
+<td><code>all</code></td>
+<td>1.0</td>
+<td>Every claim is supported by a retrieved context</td>
+</tr>
+</tbody>
+</table>
+<h4 id="answer-correctness-3-point-scale">Answer Correctness (3-point scale)<a class="headerlink" href="#answer-correctness-3-point-scale" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Label</th>
+<th>Normalized score</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>incorrect</code></td>
+<td>0.0</td>
+<td>Answer contradicts or misses the ground truth</td>
+</tr>
+<tr>
+<td><code>partially correct</code></td>
+<td>0.5</td>
+<td>Answer captures some but not all of the ground truth</td>
+</tr>
+<tr>
+<td><code>correct</code></td>
+<td>1.0</td>
+<td>Answer is factually correct relative to the ground truth</td>
+</tr>
+</tbody>
+</table>
+<h4 id="composite-score_1">Composite score<a class="headerlink" href="#composite-score_1" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>composite = (faithfulness_weight × faithfulness_score) + (answer_correctness_weight × answer_correctness_score)
+</code></pre></div>
+<p>Default weights: faithfulness 50%, answer correctness 50%. Set per-dataset in <code>dataset.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;thresholds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">&quot;faithfulness_weight&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.4</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">&quot;answer_correctness_weight&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.6</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="passfail-semantics_1">Pass/fail semantics<a class="headerlink" href="#passfail-semantics_1" title="Permanent link">&para;</a></h3>
+<p>A RAG case passes when all enabled checks satisfy their thresholds. The checks evaluated depend on what's configured:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Default behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>require_contains</code></td>
+<td><code>true</code> — case fails if answer doesn't contain ground truth</td>
+</tr>
+<tr>
+<td><code>min_answer_correctness_score</code></td>
+<td><code>0.5</code> — case fails if answer correctness score is below this</td>
+</tr>
+<tr>
+<td><code>min_faithfulness_score</code></td>
+<td><code>null</code> — scored but never fails the case by default</td>
+</tr>
+</tbody>
+</table>
+<p>Set <code>min_faithfulness_score</code> when you need strict hallucination detection:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;thresholds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">&quot;require_contains&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nt">&quot;min_faithfulness_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.75</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">&quot;min_answer_correctness_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="rag-thresholds">RAG thresholds<a class="headerlink" href="#rag-thresholds" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;thresholds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nt">&quot;pass_rate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="nt">&quot;fail_on_regression&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span><span class="nt">&quot;require_contains&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="nt">&quot;min_faithfulness_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span><span class="nt">&quot;min_answer_correctness_score&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">    </span><span class="nt">&quot;faithfulness_weight&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="nt">&quot;answer_correctness_weight&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span><span class="nt">&quot;max_cost_usd&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">    </span><span class="nt">&quot;max_p95_latency_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="p">}</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
