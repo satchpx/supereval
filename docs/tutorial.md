@@ -12,7 +12,7 @@ An eval dataset for a chatbot that answers questions about AWS services. By the 
 ## Prerequisites
 
 ```bash
-pip install -e .
+pip install supereval
 npm install -g promptfoo
 # AWS credentials configured (env vars, ~/.aws/credentials, or IAM role)
 ```

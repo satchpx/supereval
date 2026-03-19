@@ -15,12 +15,12 @@ supereval covers three evaluation modes:
 ## Install
 
 ```bash
-pip install -e .                       # core install
-pip install -e '.[pdf]'               # add PDF support
-pip install -e '.[anthropic]'         # add Anthropic API generator backend
-pip install -e '.[openai]'            # add OpenAI / Azure OpenAI generator backend
-pip install -e '.[mcp]'               # add MCP server (Claude Code, Kiro integration)
-npm install -g promptfoo              # required for supereval run
+pip install supereval                       # core install
+pip install 'supereval[pdf]'               # add PDF support
+pip install 'supereval[anthropic]'         # add Anthropic API generator backend
+pip install 'supereval[openai]'            # add OpenAI / Azure OpenAI generator backend
+pip install 'supereval[mcp]'               # add MCP server (Claude Code, Kiro integration)
+npm install -g promptfoo                   # required for supereval run
 ```
 
 AWS credentials must be configured for Bedrock features (`supereval generate`, Bedrock models in `supereval run`). Standard boto3 credential resolution applies: environment variables, `~/.aws/credentials`, or an IAM role.

@@ -3,10 +3,10 @@
 ## Upgrading the package
 
 ```bash
-pip install -e .
+pip install --upgrade supereval
 ```
 
-Re-running this command picks up any code changes. No other action is needed for most upgrades.
+No other action is needed for most upgrades.
 
 ---
 

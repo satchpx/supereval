@@ -28,7 +28,7 @@ You ran `supereval` before installing the package, or you're in the wrong virtua
 
 **Fix:**
 ```bash
-pip install -e .
+pip install supereval
 ```
 
 ---
